@@ -1,6 +1,12 @@
 import { Action } from '@elizaos/core';
-import { fetchTokenBalance, fetchLiquidityPools, fetchYieldFarms, fetchTransactionHistory } from './api';
-import { formatTokenBalance, formatLiquidityPools, formatYieldFarms, formatTransactions } from './formatters';
+import {
+  fetchTokenBalance,
+  fetchLiquidityPools,
+  fetchYieldFarms,
+  fetchTransactionHistory,
+  fetchStakeData
+} from './api';
+import { formatTokenBalance, formatLiquidityPools, formatYieldFarms, formatTransactions, formatStakeData } from './formatters';
 import { FALLBACK_MESSAGES } from '../../config/constants';
 
 export async function handleTokenBalance(walletAddress: string, tokenAddress: string): Promise<Action> {
@@ -92,3 +98,22 @@ export async function handleTransactionHistory(walletAddress: string): Promise<A
     };
   }
 }
+
+export async function handleStakeOnSonic(): Promise<Action> {
+  try {
+    const stakeData = await fetchStakeData();
+    return {
+      type: 'STAKE_ON_SONIC',
+      data: stakeData,
+      message: formatStakeData(stakeData)
+    };
+  } catch (error) {
+    console.error('Error fetching stake data:', error);
+    return {
+      type: 'ERROR',
+      data: { error },
+      message: 'Failed to fetch stake data. Please try again later.'
+    };
+  }
+}
+

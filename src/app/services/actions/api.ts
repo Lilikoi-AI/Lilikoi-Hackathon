@@ -1,4 +1,4 @@
-import { TokenBalance, LiquidityPool, YieldFarm, Transaction } from './types';
+import { TokenBalance, LiquidityPool, YieldFarm, Transaction, StakeData } from './types';
 import axios from 'axios';
 import { SONIC_API_BASE_URL, API_TIMEOUT, FALLBACK_MESSAGES } from '../../config/constants';
 import { handleApiError } from '../../utils/error';
@@ -89,5 +89,19 @@ export async function fetchTransactionHistory(walletAddress: string): Promise<Tr
     timestamp: tx.timestamp,
     status: tx.status,
     details: tx.details
+  }));
+}
+
+export async function fetchStakeData(): Promise<StakeData[]> {
+  const response = await fetch(`${SONIC_API_BASE}/validators`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch stake data');
+  }
+  const data = await response.json();
+  return data.validators.map((validator: any) => ({
+    id: validator.id,
+    name: validator.name,
+    apr: validator.apr,
+    tvl: validator.tvl
   }));
 }

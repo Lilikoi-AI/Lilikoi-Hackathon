@@ -38,3 +38,11 @@ export interface Transaction {
   status: 'success' | 'pending' | 'failed';
   details: Record<string, any>;
 }
+
+export interface StakeData {
+  id: string;
+  token: string;
+  validatorId: number;
+  apr: string;
+  tvl: string;
+}
