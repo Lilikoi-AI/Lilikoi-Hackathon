@@ -39,13 +39,6 @@ const characterConfig: CharacterConfig = {
   ]
 };
 
-interface ActionDefinition {
-  name: string;
-  description: string;
-  handler: (message: string, walletAddress?: string) => Promise<Action | null>;
-  validator: (message: string, walletAddress?: string) => boolean;
-}
-
 class SonicAgent {
   private state: State;
   private actions: ActionDefinition[];
@@ -68,7 +61,7 @@ class SonicAgent {
 
   private async executeOnchainAction(message: string, walletAddress?: string): Promise<Action | null> {
     console.log('Routing message:', message);
-    
+
     const route = await this.router.routeMessage(message);
     if (route.action === 'none' || route.confidence < 0.7) {
       console.log('No suitable action found');
