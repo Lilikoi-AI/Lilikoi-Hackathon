@@ -12,9 +12,14 @@ const metadata = {
 }
 
 export const config = defaultWagmiConfig({
-  chains: [mainnet], // Add Sonic chain configuration here
-  projectId,
-  metadata,
+  chains: [mainnet],
+  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '',
+  metadata: {
+    name: 'Sonic DeFi Agent',
+    description: 'AI-powered DeFi agent for Sonic blockchain',
+    url: 'https://sonic.ai',
+    icons: ['https://avatars.githubusercontent.com/u/37784886']
+  },
   ssr: true,
   storage: createStorage({
     storage: cookieStorage

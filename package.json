@@ -21,7 +21,9 @@
     "react-dom": "^19.0.0",
     "viem": "^2.23.3",
     "wagmi": "^2.14.11",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "@debridge-finance/desdk": "^1.0.2",
+    "@debridge-finance/dln-client": "^17.6.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

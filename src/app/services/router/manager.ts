@@ -1,98 +1,95 @@
 import { generateResponse } from '../openai';
 import { ActionDefinition } from '../actions/types';
+import { debridgeActions } from '../actions/debridge';
+import { DEBRIDGE_CONFIG } from '../../config/debridge';
 
 export class RouterManager {
   private actions: ActionDefinition[];
   private routerPrompt: string;
 
-  constructor(actions: ActionDefinition[]) {
-    this.actions = actions;
+  constructor(actions: ActionDefinition[] = []) {
+    this.actions = [...actions, ...debridgeActions];
     this.routerPrompt = this.buildRouterPrompt();
   }
 
   private buildRouterPrompt(): string {
-    const actionDescriptions = this.actions
-      .map(action => `${action.name}: ${action.description}`)
-      .join('\n');
+    return `You are a DeFi routing assistant. Your task is to parse user requests and return ONLY a JSON response matching the following format:
 
-    return `You are a DeFi action router. Your task is to analyze user messages and determine which action to take.
-
-Available actions:
-${actionDescriptions}
-
-For the given message, respond with a JSON object containing:
+For bridge requests:
 {
-  "action": "actionName",
-  "confidence": 0.0-1.0,
-  "parameters": { any extracted parameters }
-}
-
-If no action matches, set action to "none" and confidence to 0.
-
-Consider:
-1. User intent and context
-2. Required parameters for each action
-3. Confidence in the match
-
-Examples:
-Message: "What's my SONIC balance?"
-Response: {
-  "action": "getTokenBalance",
-  "confidence": 0.95,
-  "parameters": {
-    "token": "SONIC"
-  }
-}
-
-Message: "Bridge 100 USDC from Ethereum to BSC"
-Response: {
   "action": "bridgeTokens",
-  "confidence": 0.98,
+  "confidence": 0.95,
   "parameters": {
     "fromChain": "ETHEREUM",
     "toChain": "BSC",
-    "tokenAddress": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-    "amount": "100"
+    "amount": "0.1",
+    "tokenAddress": "0x0000000000000000000000000000000000000000"
   }
 }
 
-Message: "Show me liquidity pools"
-Response: {
-  "action": "getLiquidityPools",
-  "confidence": 0.95,
-  "parameters": {}
-}`;
+Available chains: ${Object.keys(DEBRIDGE_CONFIG.CHAINS).join(', ')}
+Available actions: ${this.actions.map(a => a.name).join(', ')}
+
+DO NOT include any explanatory text. ONLY return the JSON object.
+For bridge requests, always include tokenAddress (use 0x0000000000000000000000000000000000000000 for native tokens).`;
   }
 
-  public async routeMessage(message: string): Promise<{
+  public async routeMessage(message: string, context: { chainId?: number; walletAddress?: string } = {}): Promise<{
     action: string;
     confidence: number;
     parameters: Record<string, any>;
+    error?: string;
   }> {
     try {
-      const prompt = `${this.routerPrompt}\n\nMessage: "${message}"\nResponse:`;
+      const prompt = `${this.routerPrompt}\n\nUser request: "${message}"\nJSON response:`;
       const response = await generateResponse(prompt);
       
-      if (!response) {
-        console.error('Empty response from router');
-        return { action: 'none', confidence: 0, parameters: {} };
-      }
+      console.log('OpenAI response:', response);
 
       try {
-        const result = JSON.parse(response);
-        console.log('Router decision:', result);
+        const result = JSON.parse(response.trim());
+        
+        // Validate chain support
+        if (result.action === 'bridgeTokens') {
+          const fromChain = result.parameters.fromChain;
+          const toChain = result.parameters.toChain;
+          
+          if (!DEBRIDGE_CONFIG.CHAINS[fromChain] || !DEBRIDGE_CONFIG.CHAINS[toChain]) {
+            return {
+              action: 'none',
+              confidence: 0,
+              parameters: {},
+              error: `Unsupported chain. Supported chains: ${Object.keys(DEBRIDGE_CONFIG.CHAINS).join(', ')}`
+            };
+          }
+        }
+
         return result;
       } catch (error) {
         console.error('Failed to parse router response:', response);
-        return { action: 'none', confidence: 0, parameters: {} };
+        return {
+          action: 'none',
+          confidence: 0,
+          parameters: {},
+          error: 'Invalid response format'
+        };
       }
     } catch (error) {
       console.error('Router error:', error);
-      return { action: 'none', confidence: 0, parameters: {} };
+      return {
+        action: 'none',
+        confidence: 0,
+        parameters: {},
+        error: error.message
+      };
     }
   }
 
   public getActionByName(name: string): ActionDefinition | undefined {
     return this.actions.find(action => action.name === name);
+  }
+
+  public getSupportedChains(): string[] {
+    return Object.keys(DEBRIDGE_CONFIG.CHAINS);
   }
 }

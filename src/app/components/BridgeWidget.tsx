@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { usePublicClient, useWalletClient } from 'wagmi'
 
 interface BridgeWidgetProps {
   fromChainId?: string;
@@ -15,6 +16,9 @@ export function BridgeWidget({
   amount,
   theme = 'dark'
 }: BridgeWidgetProps) {
+  const publicClient = usePublicClient()
+  const { data: walletClient } = useWalletClient()
+
   useEffect(() => {
     const script = document.createElement('script');
     script.src = 'https://widgets.debridge.finance/sdk.js';
