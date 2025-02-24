@@ -1,9 +1,16 @@
-import { Action, State } from '@elizaos/core';
+import { Action } from '@elizaos/core';
+
+
+export interface ActionResponse {
+  type: string;
+  data: any;
+  message: string;
+}
 
 export interface ActionDefinition {
   name: string;
   description: string;
-  handler: (message: string, walletAddress?: string) => Promise<Action | null>;
+  handler: (message: string, walletAddress?: string) => Promise<ActionResponse | null>;
   validator: (message: string, walletAddress?: string) => boolean;
 }
 
@@ -37,4 +44,12 @@ export interface Transaction {
   timestamp: number;
   status: 'success' | 'pending' | 'failed';
   details: Record<string, any>;
+}
+
+export interface StakeData {
+  id: string;
+  token: string;
+  validatorId: number;
+  apr: string;
+  tvl: string;
 }

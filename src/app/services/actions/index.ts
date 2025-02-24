@@ -1,5 +1,11 @@
 import { ActionDefinition } from './types';
-import { handleTokenBalance, handleLiquidityPools, handleYieldFarms, handleTransactionHistory } from './handlers';
+import {
+  handleTokenBalance,
+  handleLiquidityPools,
+  handleYieldFarms,
+  handleTransactionHistory,
+  handleStakeOnSonic
+} from './handlers';
 
 export const actions: ActionDefinition[] = [
   {
@@ -31,6 +37,12 @@ export const actions: ActionDefinition[] = [
       return handleTransactionHistory(walletAddress);
     },
     validator: (message: string, walletAddress?: string) => !!walletAddress
+  },
+  {
+    name: 'stakeOnSonic',
+    description: 'Stake S (Sonic native tokens) with a Sonic Validator. Use when users ask about staking, delegating, or depositing tokens.',
+    handler: async () => handleStakeOnSonic(),
+    validator: () => true
   }
 ];
 

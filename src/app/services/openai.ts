@@ -40,7 +40,6 @@ export async function generateResponse(prompt: string) {
         }
       ],
       temperature: 0.7,
-      max_tokens: 500
     });
 
     return response.choices[0].message.content;

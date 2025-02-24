@@ -1,4 +1,4 @@
-import { TokenBalance, LiquidityPool, YieldFarm, Transaction } from './types';
+import { TokenBalance, LiquidityPool, YieldFarm, Transaction, StakeData } from './types';
 
 export function formatTokenBalance(balance: TokenBalance): string {
   return `Your ${balance.token} balance is ${balance.balance} (≈$${balance.usdValue})`;
@@ -62,4 +62,18 @@ export function formatTransactions(transactions: Transaction[]): string {
   });
 
   return 'Recent Transactions:\n\n' + txStrings.join('\n\n');
+}
+
+export function formatStakeData(stakeData: StakeData[]): string {
+  if (stakeData.length === 0) {
+    return 'No stake data found.';
+  }
+
+  const stakeStrings = stakeData.map(stake =>
+    `${stake.token} Validator:\n` +
+    `• APR: ${stake.apr}%\n` +
+    `• TVL: $${stake.tvl}`
+  );
+
+  return 'Available Validators:\n\n' + stakeStrings.join('\n\n');
 }
