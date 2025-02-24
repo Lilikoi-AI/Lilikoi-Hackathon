@@ -1,11 +1,13 @@
-import { Action, State } from '@elizaos/core';
+import { State, Memory } from '@elizaos/core';
 import { generateResponse } from './openai';
 import { actions, ActionDefinition } from './actions';
 import { RouterManager } from './router/manager';
 import { handleLiquidityPools } from './actions/handlers';
+import { ActionResponse } from './actions/types';
 
 interface CharacterConfig {
   name: string;
+  actors: string;
   description: string;
   personality: string[];
   capabilities: string[];
@@ -14,6 +16,7 @@ interface CharacterConfig {
 
 const characterConfig: CharacterConfig = {
   name: 'SonicDeFiAgent',
+  actors: "lilikoi",
   description: 'An AI agent specialized in DeFi operations on the Sonic blockchain',
   personality: [
     'Expert in DeFi operations',
@@ -47,11 +50,12 @@ class SonicAgent {
   constructor() {
     this.state = {
       agentName: characterConfig.name,
+      actors: characterConfig.actors,
       bio: characterConfig.description,
       lore: JSON.stringify(characterConfig.knowledgeBase),
       messageDirections: JSON.stringify(characterConfig.capabilities),
       postDirections: JSON.stringify(characterConfig.personality),
-      roomId: '1',
+      roomId: `1-1-1-1-1`,
       recentMessages: '',
       recentMessagesData: []
     };
@@ -59,7 +63,7 @@ class SonicAgent {
     this.router = new RouterManager(actions);
   }
 
-  private async executeOnchainAction(message: string, walletAddress?: string): Promise<Action | null> {
+  private async executeOnchainAction(message: string, walletAddress?: string): Promise<ActionResponse | null> {
     console.log('Routing message:', message);
 
     const route = await this.router.routeMessage(message);
@@ -86,10 +90,10 @@ class SonicAgent {
   async processMessage(message: string, walletAddress?: string): Promise<string> {
     try {
       // Update state with the new message
-      const newMessage = {
-        id: Date.now().toString(),
-        userId: walletAddress || 'anonymous',
-        agentId: this.state.agentName || 'SonicDeFiAgent',
+      const newMessage: Memory = {
+        id: `${this.state.roomId}-${Date.now().toString()}`,
+        userId: `${walletAddress}-1-1-1-1`,
+        agentId: `${this.state.agentName}-1-1-1-1`,
         content: { text: message },
         roomId: this.state.roomId,
         createdAt: Date.now()
@@ -102,9 +106,9 @@ class SonicAgent {
       this.state.recentMessages = JSON.stringify(this.state.recentMessagesData);
 
       // Execute onchain action if needed
-      let onchainData = null;
+      let onchainActionData = null;
       try {
-        onchainData = await this.executeOnchainAction(message, walletAddress);
+        onchainActionData = await this.executeOnchainAction(message, walletAddress);
       } catch (error) {
         console.error('Onchain action error:', error);
       }
@@ -114,16 +118,16 @@ class SonicAgent {
 
       // Create the response content
       let responseText = openAiResponse;
-      if (onchainData) {
-        responseText += '\n\nOnchain Data: ' + JSON.stringify(onchainData, null, 2);
+      if (onchainActionData) {
+        responseText += '\n\nOnchain Data: ' + JSON.stringify(onchainActionData, null, 2);
       }
 
       // Add the response to recent messages
-      const agentResponse = {
-        id: Date.now().toString(),
-        userId: this.state.agentName || 'SonicDeFiAgent',
-        agentId: this.state.agentName || 'SonicDeFiAgent',
-        content: { text: responseText },
+      const agentResponse: Memory = {
+        id: `${this.state.roomId}-${Date.now().toString()}`,
+        userId: `${this.state.agentName}-1-1-1-1`,
+        agentId: `${this.state.agentName}-1-1-1-1`,
+        content: { text: responseText || '' },
         roomId: this.state.roomId,
         createdAt: Date.now()
       };
@@ -134,12 +138,12 @@ class SonicAgent {
       ];
       this.state.recentMessages = JSON.stringify(this.state.recentMessagesData);
 
-      if (onchainData && onchainData.action === 'getLiquidityPools') {
-        const response = await handleLiquidityPools();
-        return response.text;
-      }
+      // if (onchainData && onchainData.action === 'getLiquidityPools') {
+      //   const response = await handleLiquidityPools();
+      //   return response.text;
+      // }
 
-      return responseText;
+      return responseText || '';
     } catch (error) {
       console.error('Agent error:', error);
       return 'I apologize, but I encountered an issue processing your request. Please try again in a moment.';
