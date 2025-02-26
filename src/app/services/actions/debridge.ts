@@ -1,5 +1,7 @@
 import { ActionDefinition } from './types';
 import { DEBRIDGE_CONFIG, DEBRIDGE_TESTNET_CONFIG } from '../../config/debridge';
+import { signActionMessage } from '../../utils/signing';
+import { DeBridgeService } from '../../services/debridge';
 
 export const debridgeActions: ActionDefinition[] = [
   {
@@ -12,21 +14,51 @@ export const debridgeActions: ActionDefinition[] = [
       tokenAddress: 'Token contract address (required, use 0x0000000000000000000000000000000000000000 for native token)'
     },
     validate: (params) => {
-      const supportedChains = Object.keys(DEBRIDGE_CONFIG.CHAINS);
+      const fromChain = DEBRIDGE_CONFIG.CHAINS[params.fromChain];
+      const toChain = DEBRIDGE_CONFIG.CHAINS[params.toChain];
+      const amount = parseFloat(params.amount);
+
       return {
         isValid: 
-          supportedChains.includes(params.fromChain) && 
-          supportedChains.includes(params.toChain) &&
-          parseFloat(params.amount) > 0 &&
-          params.tokenAddress,
-        error: !supportedChains.includes(params.fromChain) || !supportedChains.includes(params.toChain) 
-          ? `Unsupported chain. Supported chains: ${supportedChains.join(', ')}` 
+          !!fromChain && 
+          !!toChain && 
+          !isNaN(amount) && 
+          amount > 0 &&
+          /^0x[a-fA-F0-9]{40}$/.test(params.tokenAddress),
+        error: !fromChain || !toChain 
+          ? `Invalid chain. Supported chains: ${Object.keys(DEBRIDGE_CONFIG.CHAINS).join(', ')}`
+          : isNaN(amount) || amount <= 0
+          ? 'Invalid amount'
           : !params.tokenAddress
           ? 'Token address is required'
-          : parseFloat(params.amount) <= 0 
-          ? 'Invalid amount'
           : null
       };
+    },
+    handler: async (params, context) => {
+      if (!context.publicClient || !context.walletClient) {
+        throw new Error('Wallet not connected');
+      }
+
+      // Get signature first
+      const signature = await signActionMessage(
+        context.walletClient,
+        'bridgeTokens',
+        params
+      );
+
+      // Proceed with bridge operation
+      const bridgeService = new DeBridgeService(
+        context.publicClient,
+        context.walletClient
+      );
+
+      return await bridgeService.bridgeTokens({
+        fromChainId: DEBRIDGE_CONFIG.CHAINS[params.fromChain],
+        toChainId: DEBRIDGE_CONFIG.CHAINS[params.toChain],
+        tokenAddress: params.tokenAddress,
+        amount: params.amount,
+        signature
+      });
     }
   },
   {

@@ -1,4 +1,5 @@
 import { TokenBalance, LiquidityPool, YieldFarm, Transaction, StakeData } from './types';
+import { getValidatorName } from '../../config/staking';
 
 export function formatTokenBalance(balance: TokenBalance): string {
   return `Your ${balance.token} balance is ${balance.balance} (≈$${balance.usdValue})`;
@@ -77,3 +78,24 @@ export function formatStakeData(stakeData: StakeData[]): string {
 
   return 'Available Validators:\n\n' + stakeStrings.join('\n\n');
 }
+
+export const formatStakingResponse = (action: string, params: any, result: any) => {
+  switch (action) {
+    case 'stakeTokens':
+      return `Successfully staked ${params.amount} S tokens to ${getValidatorName(parseInt(params.validatorId))}. Transaction hash: ${result.hash}`;
+    case 'claimSRewards':
+      return `Successfully claimed rewards from ${getValidatorName(parseInt(params.validatorId))}. Transaction hash: ${result.hash}`;
+    case 'unstakeSTokens':
+      return `Successfully unstaked ${params.amount} S tokens from ${getValidatorName(parseInt(params.validatorId))}. Transaction hash: ${result.hash}`;
+    default:
+      return `Transaction completed. Hash: ${result.hash}`;
+  }
+};
+
+export const formatBridgeResponse = (params: any, result: any) => {
+  const tokenType = params.tokenAddress === '0x0000000000000000000000000000000000000000' 
+    ? 'native tokens'
+    : `tokens (${params.tokenAddress})`;
+
+  return `Successfully initiated bridge of ${params.amount} ${tokenType} from ${params.fromChain} to ${params.toChain}. Transaction hash: ${result.hash}`;
+};

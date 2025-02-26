@@ -10,8 +10,19 @@ export interface ActionResponse {
 export interface ActionDefinition {
   name: string;
   description: string;
-  handler: (message: string, walletAddress?: string) => Promise<ActionResponse | null>;
-  validator: (message: string, walletAddress?: string) => boolean;
+  parameters: Record<string, string>;
+  validate?: (params: Record<string, any>) => {
+    isValid: boolean;
+    error: string | null;
+  };
+  handler?: (params: Record<string, any>, context: ActionContext) => Promise<any>;
+}
+
+export interface ActionContext {
+  chainId?: number;
+  walletAddress?: string;
+  publicClient?: any;
+  walletClient?: any;
 }
 
 export interface TokenBalance {

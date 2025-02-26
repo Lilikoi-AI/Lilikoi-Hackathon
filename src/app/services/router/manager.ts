@@ -1,21 +1,27 @@
 import { generateResponse } from '../openai';
 import { ActionDefinition } from '../actions/types';
 import { debridgeActions } from '../actions/debridge';
+import { stakingActions } from '../actions/staking';
 import { DEBRIDGE_CONFIG } from '../../config/debridge';
+import { STAKING_CONFIG, getValidatorById } from '../../config/staking';
 
 export class RouterManager {
   private actions: ActionDefinition[];
   private routerPrompt: string;
 
   constructor(actions: ActionDefinition[] = []) {
-    this.actions = [...actions, ...debridgeActions];
+    this.actions = [...actions, ...debridgeActions, ...stakingActions];
     this.routerPrompt = this.buildRouterPrompt();
   }
 
   private buildRouterPrompt(): string {
-    return `You are a DeFi routing assistant. Your task is to parse user requests and return ONLY a JSON response matching the following format:
+    return `You are a DeFi routing assistant. Parse user requests for bridge and Sonic (S) token staking operations.
 
-For bridge requests:
+Available actions: ${this.actions.map(a => a.name).join(', ')}
+
+Example responses:
+
+For bridge operations:
 {
   "action": "bridgeTokens",
   "confidence": 0.95,
@@ -27,11 +33,40 @@ For bridge requests:
   }
 }
 
-Available chains: ${Object.keys(DEBRIDGE_CONFIG.CHAINS).join(', ')}
-Available actions: ${this.actions.map(a => a.name).join(', ')}
+For S token staking:
+{
+  "action": "stakeTokens",
+  "confidence": 0.95,
+  "parameters": {
+    "validatorId": "1",
+    "amount": "100"  // Amount in S tokens
+  }
+}
 
-DO NOT include any explanatory text. ONLY return the JSON object.
-For bridge requests, always include tokenAddress (use 0x0000000000000000000000000000000000000000 for native tokens).`;
+For claiming S token rewards:
+{
+  "action": "claimSRewards",
+  "confidence": 0.95,
+  "parameters": {
+    "validatorId": "1"
+  }
+}
+
+For unstaking S tokens:
+{
+  "action": "unstakeSTokens",
+  "confidence": 0.95,
+  "parameters": {
+    "validatorId": "1",
+    "amount": "50"  // Amount in S tokens
+  }
+}
+
+Available chains for bridging: ${Object.keys(DEBRIDGE_CONFIG.CHAINS).join(', ')}
+Available validators for staking: ${STAKING_CONFIG.VALIDATORS.map(v => v.id).join(', ')}
+Minimum stake amount: ${STAKING_CONFIG.MIN_STAKE} S tokens
+
+DO NOT include any explanatory text. ONLY return the JSON object.`;
   }
 
   public async routeMessage(message: string, context: { chainId?: number; walletAddress?: string } = {}): Promise<{
@@ -49,7 +84,7 @@ For bridge requests, always include tokenAddress (use 0x000000000000000000000000
       try {
         const result = JSON.parse(response.trim());
         
-        // Validate chain support
+        // Validate bridge operations
         if (result.action === 'bridgeTokens') {
           const fromChain = result.parameters.fromChain;
           const toChain = result.parameters.toChain;
@@ -61,6 +96,34 @@ For bridge requests, always include tokenAddress (use 0x000000000000000000000000
               parameters: {},
               error: `Unsupported chain. Supported chains: ${Object.keys(DEBRIDGE_CONFIG.CHAINS).join(', ')}`
             };
+          }
+        }
+
+        // Validate staking operations
+        if (['stakeTokens', 'claimSRewards', 'unstakeSTokens'].includes(result.action)) {
+          const validatorId = parseInt(result.parameters.validatorId);
+          const validator = getValidatorById(validatorId);
+          
+          if (!validator) {
+            return {
+              action: 'none',
+              confidence: 0,
+              parameters: {},
+              error: `Invalid validator ID. Available validators: ${STAKING_CONFIG.VALIDATORS.map(v => v.id).join(', ')}`
+            };
+          }
+
+          // Validate minimum stake amount for staking and unstaking
+          if (['stakeTokens', 'unstakeSTokens'].includes(result.action)) {
+            const amount = parseFloat(result.parameters.amount);
+            if (amount < parseFloat(STAKING_CONFIG.MIN_STAKE)) {
+              return {
+                action: 'none',
+                confidence: 0,
+                parameters: {},
+                error: `Minimum amount is ${STAKING_CONFIG.MIN_STAKE} S tokens`
+              };
+            }
           }
         }
 
@@ -91,5 +154,9 @@ For bridge requests, always include tokenAddress (use 0x000000000000000000000000
 
   public getSupportedChains(): string[] {
     return Object.keys(DEBRIDGE_CONFIG.CHAINS);
+  }
+
+  public getValidators(): typeof STAKING_CONFIG.VALIDATORS {
+    return STAKING_CONFIG.VALIDATORS;
   }
 }

@@ -9,6 +9,10 @@ import {
 import { formatTokenBalance, formatLiquidityPools, formatYieldFarms, formatTransactions, formatStakeData } from './formatters';
 import { FALLBACK_MESSAGES } from '../../config/constants';
 import { ActionResponse } from './types';
+import { StakingService } from '../staking';
+import { ActionContext } from './types';
+import { STAKING_CONFIG } from '../../config/staking';
+import { signActionMessage } from '../../utils/signing';
 
 export async function handleTokenBalance(walletAddress: string, tokenAddress: string): Promise<ActionResponse> {
   try {
@@ -109,4 +113,77 @@ export async function handleStakeOnSonic(): Promise<ActionResponse> {
     };
   }
 }
+
+export const stakingHandlers = {
+  async stakeTokens(params: { validatorId: string; amount: string }, context: ActionContext) {
+    if (!context.publicClient || !context.walletClient) {
+      throw new Error('Wallet not connected');
+    }
+
+    // Get signature first
+    const signature = await signActionMessage(
+      context.walletClient,
+      'stakeTokens',
+      params
+    );
+
+    const staking = new StakingService(
+      context.publicClient, 
+      context.walletClient
+    );
+
+    return await staking.stakeTokens(
+      parseInt(params.validatorId),
+      params.amount,
+      signature
+    );
+  },
+
+  async claimSRewards(params: { validatorId: string }, context: ActionContext) {
+    if (!context.publicClient || !context.walletClient) {
+      throw new Error('Wallet not connected');
+    }
+
+    // Get signature first
+    const signature = await signActionMessage(
+      context.walletClient,
+      'claimSRewards',
+      params
+    );
+
+    const staking = new StakingService(
+      context.publicClient, 
+      context.walletClient
+    );
+
+    return await staking.claimRewards(
+      parseInt(params.validatorId),
+      signature
+    );
+  },
+
+  async unstakeSTokens(params: { validatorId: string; amount: string }, context: ActionContext) {
+    if (!context.publicClient || !context.walletClient) {
+      throw new Error('Wallet not connected');
+    }
+
+    // Get signature first
+    const signature = await signActionMessage(
+      context.walletClient,
+      'unstakeSTokens',
+      params
+    );
+
+    const staking = new StakingService(
+      context.publicClient, 
+      context.walletClient
+    );
+
+    return await staking.unstake(
+      parseInt(params.validatorId),
+      params.amount,
+      signature
+    );
+  }
+};
 
