@@ -1,5 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { DeBridgeService } from '../debridge';
 import { DEBRIDGE_CONFIG } from '../../config/debridge';
+import { ethers } from 'ethers';
 
 export class DeBridgeExecutor {
   private deBridgeService: DeBridgeService;
@@ -26,7 +28,7 @@ export class DeBridgeExecutor {
       fromChainId,
       toChainId,
       JSON.stringify({ type: 'BRIDGE', amount: params.amount, token: params.tokenAddress }),
-      params.tokenAddress || ethers.constants.AddressZero
+      params.tokenAddress || ethers.ZeroAddress
     );
 
     return {

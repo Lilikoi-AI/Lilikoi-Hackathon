@@ -1,5 +1,5 @@
-import { Chain } from 'wagmi'
-
+/* eslint-disable @typescript-eslint/no-unused-vars */
+// import { Chain } from 'wagmi'
 // Unified chain configuration
 export const SUPPORTED_CHAINS = {
   MAINNET: {
@@ -9,12 +9,14 @@ export const SUPPORTED_CHAINS = {
     OPTIMISM: { id: 10, name: 'Optimism' },
     POLYGON: { id: 137, name: 'Polygon' },
     AVALANCHE: { id: 43114, name: 'Avalanche' },
-    BASE: { id: 8453, name: 'Base' }
+    BASE: { id: 8453, name: 'Base' },
+    SONIC: { id: 146, name: 'Sonic' }
   },
   TESTNET: {
     GOERLI: { id: 5, name: 'Goerli' },
     BSC_TESTNET: { id: 97, name: 'BSC Testnet' },
-    ARBITRUM_GOERLI: { id: 421613, name: 'Arbitrum Goerli' }
+    ARBITRUM_GOERLI: { id: 421613, name: 'Arbitrum Goerli' },
+    SONIC_BLAZE_TESTNET: { id: 57054, name: 'Sonic Blaze Testnet' },
   }
 }
 
@@ -34,9 +36,7 @@ export const DEBRIDGE_CONTRACTS = {
 export const DEBRIDGE_CONFIG = {
   PROTOCOL_FEES: {
     ETHEREUM: '0.001', // ETH
-    BSC: '0.002', // BNB
-    ARBITRUM: '0.0001', // ETH
-    BASE: '0.0001' // ETH
+    SONIC: '0.0001', // ETH
   },
 
   // Convert chain objects to id mapping for compatibility
@@ -52,7 +52,7 @@ export const DEBRIDGE_CONFIG = {
 export const getDeBridgeProtocolFee = (chainId: number): string => {
   const chain = Object.entries(SUPPORTED_CHAINS.MAINNET)
     .find(([_, data]) => data.id === chainId)?.[0]
-  return chain ? DEBRIDGE_CONFIG.PROTOCOL_FEES[chain] : '0'
+  return chain ? DEBRIDGE_CONFIG.PROTOCOL_FEES[chain as keyof typeof DEBRIDGE_CONFIG.PROTOCOL_FEES] : '0'
 }
 
 export const getDeBridgeContracts = (chainId: number, isTestnet = false) => {
@@ -75,7 +75,7 @@ export const getChainName = (chainId: number, isTestnet = false): string | null 
 // Get chain ID by name
 export const getChainId = (chainName: string, isTestnet = false): number | null => {
   const chains = isTestnet ? SUPPORTED_CHAINS.TESTNET : SUPPORTED_CHAINS.MAINNET
-  return chains[chainName]?.id || null
+  return Object.values(chains).find(chain => chain.name === chainName)?.id || null
 }
 
 export const DEBRIDGE_TESTNET_CONFIG = {

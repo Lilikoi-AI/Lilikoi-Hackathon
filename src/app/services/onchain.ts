@@ -1,9 +1,9 @@
-import { Action, ActionExample, Content, State } from '@elizaos/core';
+import { Action, State } from '@elizaos/core';
 import { ethers } from 'ethers';
 import axios from 'axios';
 import { SONIC_API_BASE_URL, API_TIMEOUT, FALLBACK_MESSAGES, SUPPORTED_CHAINS } from '../config/constants';
 import { handleApiError } from '../utils/error';
-import { DeBridgeService } from '../services/bridge/debridge';
+// import { DeBridgeService } from '../services/bridge/debridge';
 
 interface TokenInfo {
   address: string;
@@ -30,32 +30,32 @@ interface PoolsResponse {
   pools: Pool[];
 }
 
-interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
+// interface ApiResponse<T> {
+//   success: boolean;
+//   data?: T;
+//   error?: string;
+// }
 
-interface TokenBalance {
-  token: string;
-  balance: string;
-  usdValue: string;
-}
+// interface TokenBalance {
+//   token: string;
+//   balance: string;
+//   usdValue: string;
+// }
 
-interface LiquidityPool {
-  pair: string;
-  tvl: string;
-  apr: string;
-  volume24h: string;
-}
+// interface LiquidityPool {
+//   pair: string;
+//   tvl: string;
+//   apr: string;
+//   volume24h: string;
+// }
 
-interface YieldFarm {
-  name: string;
-  token: string;
-  apy: string;
-  tvl: string;
-  rewards: string[];
-}
+// interface YieldFarm {
+//   name: string;
+//   token: string;
+//   apy: string;
+//   tvl: string;
+//   rewards: string[];
+// }
 
 class OnchainActions {
   private state: State;
