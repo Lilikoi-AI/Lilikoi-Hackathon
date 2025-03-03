@@ -1,6 +1,6 @@
 import { defaultWagmiConfig } from '@web3modal/wagmi/react/config'
 import { cookieStorage, createStorage } from 'wagmi'
-import { mainnet, sonic, sonicBlazeTestnet, base } from 'viem/chains'
+import { mainnet, sonic, sonicTestnet, base } from 'viem/chains'
 
 export const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || ''
 
@@ -12,7 +12,7 @@ const metadata = {
 }
 
 export const config = defaultWagmiConfig({
-  chains: [mainnet, sonic, sonicBlazeTestnet, base],
+  chains: [mainnet, sonic, sonicTestnet, base],
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '',
   metadata: metadata,
   ssr: true,
