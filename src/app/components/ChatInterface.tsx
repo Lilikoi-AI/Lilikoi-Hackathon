@@ -67,11 +67,11 @@ export default function ChatInterface() {
         throw new Error(routerResult.error);
       }
 
-      if (routerResult.parameters.fromChain === "ETHEREUM") {
+      if (routerResult.parameters.fromChain === "ETHEREUM" || routerResult.parameters.fromChain === "BASE") {
         try {
           // USDC details
           const USDC_ADDRESS = routerResult.parameters.tokenAddress;
-          const amount = ethers.parseUnits(routerResult.parameters.amount, 6); // USDC has 6 decimals
+          const amount = ethers.parseUnits(routerResult.parameters.amount, 6); 
 
           // 1. Bridge USDC to Sonic
           setAnswer("Initiating bridge to Sonic...");
@@ -80,7 +80,7 @@ export default function ChatInterface() {
 
           // 2. Claim USDC on Sonic
           setAnswer("Waiting for state update and claiming on Sonic...");
-          const claimTx = await claimOnSonic(signer, deposit.transactionHash, deposit.blockNumber);
+          const claimTx = await claimOnSonic(signer, deposit.transactionHash, deposit.blockNumber, deposit.depositId);
           setAnswer(`Claim successful: ${claimTx}`);
         } catch (error: any) {
           console.error("Bridge operation failed:", error?.message);     
@@ -125,6 +125,7 @@ export default function ChatInterface() {
   async function bridgeToSonic (ethSigner: ethers.JsonRpcSigner, tokenAddress: string, amount: bigint) {
     const tokenPairs = new ethers.Contract(ETH_CONTRACTS.TOKEN_PAIRS, TOKEN_PAIRS_ABI, ethProvider);
     const mintedToken = await tokenPairs.originalToMinted(tokenAddress);
+    console.log(mintedToken);
     if (mintedToken === ethers.ZeroAddress) {
       throw new Error("Token not supported");
     }
@@ -145,7 +146,7 @@ export default function ChatInterface() {
       transactionHash: receipt.hash,
       mintedToken,
       blockNumber: receipt.blockNumber,
-      // depositId: receipt.events.find((e: { event: string; }) => e.event === 'Deposit').args.id
+      depositId: receipt.events.find((e: { event: string; }) => e.event === 'Deposit').args.id
     };
   }
 
@@ -160,42 +161,42 @@ export default function ChatInterface() {
     } 
   }
 
-  // async function generateProof(depositId: bigint) {
-  //   // Generate storage slot for deposit
-  //   const abiCoder = AbiCoder.defaultAbiCoder();
+  async function generateProof(depositId: number) {
+    // Generate storage slot for deposit
+    const abiCoder = AbiCoder.defaultAbiCoder();
 
-  //   const encodedData = abiCoder.encode(['uint256', 'uint8'], [depositId, 7]);
-  //   const storageSlot = ethers.keccak256(encodedData);
+    const encodedData = abiCoder.encode(['uint256', 'uint8'], [depositId, 7]);
+    const storageSlot = ethers.keccak256(encodedData);
 
-  //   // Get proof from Ethereum node
-  //   const proof = await ethProvider.send("eth_getProof", [
-  //     ETH_CONTRACTS.TOKEN_DEPOSIT,
-  //     [storageSlot],
-  //     "latest"
-  //   ]);
+    // Get proof from Ethereum node
+    const proof = await ethProvider.send("eth_getProof", [
+      ETH_CONTRACTS.TOKEN_DEPOSIT,
+      [storageSlot],
+      "latest"
+    ]);
 
-  //   // Encode proof in required format
-  //   return ethers.encodeRlp([
-  //     ethers.encodeRlp(proof.accountProof),
-  //     ethers.encodeRlp(proof.storageProof[0].proof)
-  //   ]);
-  // }
+    // Encode proof in required format
+    return ethers.encodeRlp([
+      ethers.encodeRlp(proof.accountProof),
+      ethers.encodeRlp(proof.storageProof[0].proof)
+    ]);
+  }
 
-  async function claimOnSonic(sonicSigner: ethers.JsonRpcSigner, depositTxHash: string, depositBlockNumber: bigint) {
+  async function claimOnSonic(sonicSigner: ethers.JsonRpcSigner, depositTxHash: string, depositBlockNumber: bigint, depositId: number) {
     console.log("Waiting for state oracle update...");
     setAnswer("Waiting for state oracle update...");
     await waitForStateUpdate(depositBlockNumber);
 
     // 2. Generate proof
     console.log("Generating proof...");
-    // const proof = await generateProof(depositId);
+    const proof = await generateProof(depositId);
 
     // 3. Claim tokens with proof
-    // const bridge = new ethers.Contract(SONIC_CONTRACTS.BRIDGE, BRIDGE_ABI, sonicSigner);
-    // const tx = await bridge.claim(depositTxHash, proof);
-    // const receipt = await tx.wait();
+    const bridge = new ethers.Contract(SONIC_CONTRACTS.BRIDGE, BRIDGE_ABI, sonicSigner);
+    const tx = await bridge.claim(depositTxHash, proof);
+    const receipt = await tx.wait();
 
-    // return receipt.transactionHash;
+    return receipt.transactionHash;
   }
 
   async function bridgeToEthereum(sonicSigner: ethers.JsonRpcSigner, tokenAddress: string, amount: bigint) {

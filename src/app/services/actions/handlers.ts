@@ -139,6 +139,19 @@ export const stakingHandlers = {
     );
   },
 
+  async getAllValidators(context: ActionContext) {
+    if (!context.publicClient) {
+      throw new Error('Public client not connected');
+    }
+
+    const staking = new StakingService(
+      context.publicClient, 
+      context.walletClient
+    );
+
+    return await staking.getAllValidators();
+  },
+
   async claimSRewards(params: { validatorId: string }, context: ActionContext) {
     if (!context.publicClient || !context.walletClient) {
       throw new Error('Wallet not connected');

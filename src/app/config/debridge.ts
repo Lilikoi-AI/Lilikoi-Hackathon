@@ -36,7 +36,11 @@ export const DEBRIDGE_CONTRACTS = {
 export const DEBRIDGE_CONFIG = {
   PROTOCOL_FEES: {
     ETHEREUM: '0.001', // ETH
-    SONIC: '0.0001', // ETH
+    SONIC: '0.0001', // SONIC
+  },
+
+  TOKENS: {
+    
   },
 
   // Convert chain objects to id mapping for compatibility

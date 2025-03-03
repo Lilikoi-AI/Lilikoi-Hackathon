@@ -35,8 +35,16 @@ export async function generateResponse(userInput: string) {
           - **Action**: The type of transaction (e.g., bridge, stake)
           - **Source Chain**: The blockchain where the assets are currently located
           - **Destination Chain**: The blockchain to which the assets will be moved (if applicable)
-          - **Token**: The specific cryptocurrency or the address of the token involved 
+          - **Token**: The specific cryptocurrency or the address of the token involved on the chain mentioned by the user.
           - **Amount**: The quantity of the token to be transacted
+
+          If User Input is unclear or missing information, respond with "Insufficient information to extract all parameters."
+
+          If user action is Staking, provide the following details:
+          - **Validator ID**: The unique identifier of the validator
+          - **Amount**: The quantity of S tokens to stake
+          - **Lock Period**: The duration for which the tokens will be locked
+          - **APR**: The Annual Percentage Rate of rewards
 
           Always be helpful, concise, and security-conscious. If a user asks about executing a transaction, warn them about potential risks and recommend double-checking details.`
         },
@@ -54,7 +62,7 @@ export async function generateResponse(userInput: string) {
           If any information is missing or unclear, respond with "Insufficient information to extract all parameters."`
         }
       ],
-      temperature: 0.7,
+      temperature: 0.4,
     });
 
     return response.choices[0].message.content;

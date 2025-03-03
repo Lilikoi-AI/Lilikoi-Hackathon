@@ -47,6 +47,13 @@ export class StakingService {
     return formatEther(delegation.amount)
   }
 
+  async getAllValidators() {
+    return STAKING_CONFIG.VALIDATORS.map(v => ({
+      id: v.id,
+      name: getValidatorName(v.id)
+    }))
+  }
+
   async claimRewards(validatorId: number, signature: string) {
     const { request } = await this.publicClient.simulateContract({
       address: this.contractAddress,

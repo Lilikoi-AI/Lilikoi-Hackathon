@@ -1,5 +1,4 @@
 import { ActionDefinition } from './types';
-import { parseEther } from 'viem';
 import { stakingHandlers } from './handlers';
 
 export const stakingActions: ActionDefinition[] = [
@@ -27,6 +26,12 @@ export const stakingActions: ActionDefinition[] = [
       };
     },
     handler: stakingHandlers.stakeTokens
+  },
+  {
+    name: 'getAllValidators',
+    description: 'Get a list of all active validators',
+    parameters: {},
+    handler: stakingHandlers.getAllValidators
   },
   {
     name: 'claimSRewards',
