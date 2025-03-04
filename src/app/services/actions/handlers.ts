@@ -4,7 +4,8 @@ import {
   fetchLiquidityPools,
   fetchYieldFarms,
   fetchTransactionHistory,
-  fetchStakeData
+  fetchStakeData,
+  fetchValidatorsList
 } from './api';
 import { formatTokenBalance, formatLiquidityPools, formatYieldFarms, formatTransactions, formatStakeData } from './formatters';
 import { FALLBACK_MESSAGES } from '../../config/constants';
@@ -114,76 +115,131 @@ export async function handleStakeOnSonic(): Promise<ActionResponse> {
   }
 }
 
+export async function handleValidatorsList(): Promise<ActionResponse> {
+  try {
+    const validators = await fetchValidatorsList();
+    
+    if (validators.length === 0) {
+      return {
+        type: 'VALIDATORS_LIST',
+        data: [],
+        message: 'No active validators found. Please try again later.'
+      };
+    }
+    
+    // Format the validators data into a user-friendly message
+    const validatorsMessage = validators.map(validator => 
+      `Validator #${validator.validatorId}\n` +
+      `• Status: ${validator.status === 1 ? '🟢 Active' : '🔴 Inactive'}\n` +
+      `• Total Stake: ${validator.totalStake} S\n` +
+      `• APR: ${validator.apr.toFixed(2)}%\n` +
+      `• Uptime: ${validator.uptime.toFixed(2)}%\n` +
+      `• Commission: ${validator.commission.toFixed(2)}%`
+    ).join('\n\n');
+
+    return {
+      type: 'VALIDATORS_LIST',
+      data: validators,
+      message: `Available Validators:\n\n${validatorsMessage}\n\nTo stake with a validator, use their ID number. Minimum stake amount: ${STAKING_CONFIG.MIN_STAKE} S tokens.`
+    };
+  } catch (error) {
+    console.error('Error fetching validators list:', error);
+    return {
+      type: 'ERROR',
+      data: { error },
+      message: 'Unable to fetch validators list. Please ensure you are connected to the Sonic network and try again.'
+    };
+  }
+}
+
 export const stakingHandlers = {
-  async stakeTokens(params: { validatorId: string; amount: string }, context: ActionContext) {
+  async stakeTokens(params: Record<string, any>, context: ActionContext) {
     if (!context.publicClient || !context.walletClient) {
       throw new Error('Wallet not connected');
     }
-
-    // Get signature first
-    const signature = await signActionMessage(
-      context.walletClient,
-      'stakeTokens',
-      params
-    );
 
     const staking = new StakingService(
       context.publicClient, 
       context.walletClient
     );
 
-    return await staking.stakeTokens(
-      parseInt(params.validatorId),
-      params.amount,
-      signature
-    );
+    try {
+      const hash = await staking.stakeTokens(
+        parseInt(params.validatorId),
+        params.amount
+      );
+      
+      return {
+        success: true,
+        hash,
+        message: `Successfully staked ${params.amount} S tokens to validator #${params.validatorId}`
+      };
+    } catch (error) {
+      console.error('Staking failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
   },
 
-  async claimSRewards(params: { validatorId: string }, context: ActionContext) {
+  async claimSRewards(params: Record<string, any>, context: ActionContext) {
     if (!context.publicClient || !context.walletClient) {
       throw new Error('Wallet not connected');
     }
-
-    // Get signature first
-    const signature = await signActionMessage(
-      context.walletClient,
-      'claimSRewards',
-      params
-    );
 
     const staking = new StakingService(
       context.publicClient, 
       context.walletClient
     );
 
-    return await staking.claimRewards(
-      parseInt(params.validatorId),
-      signature
-    );
+    try {
+      const hash = await staking.claimRewards(
+        parseInt(params.validatorId)
+      );
+      
+      return {
+        success: true,
+        hash,
+        message: `Successfully claimed rewards from validator #${params.validatorId}`
+      };
+    } catch (error) {
+      console.error('Claiming rewards failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
   },
 
-  async unstakeSTokens(params: { validatorId: string; amount: string }, context: ActionContext) {
+  async unstakeSTokens(params: Record<string, any>, context: ActionContext) {
     if (!context.publicClient || !context.walletClient) {
       throw new Error('Wallet not connected');
     }
-
-    // Get signature first
-    const signature = await signActionMessage(
-      context.walletClient,
-      'unstakeSTokens',
-      params
-    );
 
     const staking = new StakingService(
       context.publicClient, 
       context.walletClient
     );
 
-    return await staking.unstake(
-      parseInt(params.validatorId),
-      params.amount,
-      signature
-    );
+    try {
+      const hash = await staking.unstake(
+        parseInt(params.validatorId),
+        params.amount
+      );
+      
+      return {
+        success: true,
+        hash,
+        message: `Successfully unstaked ${params.amount} S tokens from validator #${params.validatorId}`
+      };
+    } catch (error) {
+      console.error('Unstaking failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
   }
 };
 

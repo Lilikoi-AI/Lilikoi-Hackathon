@@ -2,12 +2,16 @@
 'use client';
 
 import { useState } from 'react'
-import { useAccount, usePublicClient } from 'wagmi'
+import { useAccount, usePublicClient, useWalletClient } from 'wagmi'
 import { PaperAirplaneIcon } from '@heroicons/react/24/solid'
 import { AbiCoder, ethers } from 'ethers';
 import { useEthersSigner } from '@/app/hooks/useEthersSigner';
 import { ETH_CONTRACTS, SONIC_CONTRACTS } from '../constants/contract-addresses';
 import { BRIDGE_ABI, ERC20_ABI, STATE_ORACLE_ABI, TOKEN_DEPOSIT_ABI, TOKEN_PAIRS_ABI } from '../constants/sonic-abis';
+import { fetchValidatorsList } from '../services/actions/api';
+import { STAKING_CONFIG } from '../config/staking';
+import { ValidatorInfo } from '../services/actions/types';
+import { StakingService } from '../services/staking';
 
 interface Message {
   role: 'user' | 'assistant'
@@ -25,6 +29,7 @@ const sonicProvider = new ethers.JsonRpcProvider(SONIC_RPC);
 export default function ChatInterface() {
   const { address } = useAccount()
   const publicClient = usePublicClient()
+  const { data: walletClient } = useWalletClient()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -67,7 +72,74 @@ export default function ChatInterface() {
         throw new Error(routerResult.error);
       }
 
-      if (routerResult.parameters.fromChain === "ETHEREUM") {
+      // Handle validator list request first
+      if (routerResult.action === "getValidatorsList") {
+        try {
+          setAnswer("Fetching validators list...");
+          // Use the result directly from the first API call
+          const validatorsList = await fetchValidatorsList();
+          
+          // Format the validators data into a user-friendly message
+          const validatorsMessage = validatorsList.map(validator => 
+            `Validator #${validator.validatorId}\n` +
+            `• Status: ${validator.status === 1 ? '🟢 Active' : '🔴 Inactive'}\n` +
+            `• Total Stake: ${validator.totalStake} S\n` +
+            `• APR: ${validator.apr.toFixed(2)}%\n` +
+            `• Uptime: ${validator.uptime.toFixed(2)}%\n` +
+            `• Commission: ${validator.commission.toFixed(2)}%`
+          ).join('\n\n');
+
+          const message = `Available Validators:\n\n${validatorsMessage}\n\nTo stake with a validator, use their ID number. Minimum stake amount: ${STAKING_CONFIG.MIN_STAKE} S tokens.`;
+          
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: message
+          }]);
+          return; // Exit after handling validator list
+        } catch (error: any) {
+          console.error('Error fetching validators:', error);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Error: ${error.message || 'Failed to fetch validators list'}`
+          }]);
+          return; // Exit after error
+        }
+      }
+
+      // Handle staking action
+      if (routerResult.action === "stakeTokens") {
+        try {
+          const { validatorId, amount } = routerResult.parameters;
+          setAnswer(`Initiating staking of ${amount} S tokens to validator #${validatorId}...`);
+          
+          if (!publicClient || !walletClient) {
+            throw new Error('Wallet not connected');
+          }
+          
+          const staking = new StakingService(publicClient, walletClient);
+          const hash = await staking.stakeTokens(parseInt(validatorId), amount);
+          
+          const message = `Successfully initiated staking of ${amount} S tokens to validator #${validatorId}.\nTransaction hash: ${hash}`;
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: message
+          }]);
+          setAnswer(''); // Clear loading message
+          return;
+        } catch (error: any) {
+          console.error('Staking failed:', error);
+          const errorMessage = error.message || 'Failed to stake tokens';
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Error: ${errorMessage}. Please make sure you have enough S tokens and have approved the transaction.`
+          }]);
+          setAnswer(''); // Clear loading message
+          return;
+        }
+      }
+
+      // Handle bridge operations
+      if (routerResult.parameters?.fromChain === "ETHEREUM") {
         try {
           // USDC details
           const USDC_ADDRESS = routerResult.parameters.tokenAddress;
@@ -88,21 +160,21 @@ export default function ChatInterface() {
         }
       }
 
-      if(routerResult.parameters.fromChain === "SONIC") {
+      if(routerResult.parameters?.fromChain === "SONIC") {
         try {
           // USDC details
           const USDC_ADDRESS = routerResult.parameters.tokenAddress;
           const amount = ethers.parseUnits(routerResult.parameters.amount, 6); // USDC has 6 decimals
 
-          // 1. Bridge USDC to Ethereum]
+          // 1. Bridge USDC to Ethereum
           console.log(USDC_ADDRESS, amount);
           setAnswer("Initiating bridge to Ethereum...");
-          const withdrawal = await bridgeToEthereum(signer, USDC_ADDRESS, amount);
+          const withdrawal = await bridgeToEthereum(walletClient, USDC_ADDRESS, amount);
           console.log(`Withdrawal successful: ${withdrawal.transactionHash}`);
 
           // 2. Claim USDC on Ethereum
           setAnswer("Waiting for state update and claiming on Ethereum...");
-          const claimTx = await claimOnEthereum(signer, withdrawal.transactionHash, withdrawal.blockNumber, withdrawal.withdrawalId);
+          const claimTx = await claimOnEthereum(walletClient, withdrawal.transactionHash, withdrawal.blockNumber, withdrawal.withdrawalId);
           console.log(`Claim successful: ${claimTx}`);
           setAnswer(`Claim successful: ${claimTx}`);
         } catch (error: any) {
@@ -122,7 +194,7 @@ export default function ChatInterface() {
     }
   };
 
-  async function bridgeToSonic (ethSigner: ethers.JsonRpcSigner, tokenAddress: string, amount: bigint) {
+  async function bridgeToSonic (walletClient: ethers.Wallet, tokenAddress: string, amount: bigint) {
     const tokenPairs = new ethers.Contract(ETH_CONTRACTS.TOKEN_PAIRS, TOKEN_PAIRS_ABI, ethProvider);
     const mintedToken = await tokenPairs.originalToMinted(tokenAddress);
     if (mintedToken === ethers.ZeroAddress) {
@@ -130,12 +202,12 @@ export default function ChatInterface() {
     }
 
     // 2. Approve token spending
-    const token = new ethers.Contract(tokenAddress, ERC20_ABI, ethSigner);
+    const token = new ethers.Contract(tokenAddress, ERC20_ABI, walletClient);
     const approveTx = await token.approve(ETH_CONTRACTS.TOKEN_DEPOSIT, amount);
     await approveTx.wait();
 
     // 3. Deposit tokens
-    const deposit = new ethers.Contract(ETH_CONTRACTS.TOKEN_DEPOSIT, TOKEN_DEPOSIT_ABI, ethSigner);
+    const deposit = new ethers.Contract(ETH_CONTRACTS.TOKEN_DEPOSIT, TOKEN_DEPOSIT_ABI, walletClient);
     const tx = await deposit.deposit(Date.now(), tokenAddress, amount);
     console.log(tx);
     const receipt = await tx.wait();
@@ -181,7 +253,7 @@ export default function ChatInterface() {
   //   ]);
   // }
 
-  async function claimOnSonic(sonicSigner: ethers.JsonRpcSigner, depositTxHash: string, depositBlockNumber: bigint) {
+  async function claimOnSonic(walletClient: ethers.Wallet, depositTxHash: string, depositBlockNumber: bigint) {
     console.log("Waiting for state oracle update...");
     setAnswer("Waiting for state oracle update...");
     await waitForStateUpdate(depositBlockNumber);
@@ -198,7 +270,7 @@ export default function ChatInterface() {
     // return receipt.transactionHash;
   }
 
-  async function bridgeToEthereum(sonicSigner: ethers.JsonRpcSigner, tokenAddress: string, amount: bigint) {
+  async function bridgeToEthereum(walletClient: ethers.Wallet, tokenAddress: string, amount: bigint) {
     // 1. Check if token is supported
     const tokenPairs = new ethers.Contract(SONIC_CONTRACTS.TOKEN_PAIRS, TOKEN_PAIRS_ABI, sonicProvider);
     const originalToken = await tokenPairs.mintedToOriginal(tokenAddress);
@@ -207,7 +279,7 @@ export default function ChatInterface() {
     }
 
     // 2. Initiate withdrawal
-    const bridge = new ethers.Contract(SONIC_CONTRACTS.BRIDGE, BRIDGE_ABI, sonicSigner);
+    const bridge = new ethers.Contract(SONIC_CONTRACTS.BRIDGE, BRIDGE_ABI, walletClient);
     const tx = await bridge.withdraw(Date.now(), originalToken, amount);
     const receipt = await tx.wait();
 
@@ -251,7 +323,7 @@ export default function ChatInterface() {
     ]);
   }
 
-  async function claimOnEthereum(ethSigner: ethers.JsonRpcSigner, withdrawalTxHash: string, withdrawalBlockNumber: bigint, withdrawalId: bigint) {
+  async function claimOnEthereum(walletClient: ethers.Wallet, withdrawalTxHash: string, withdrawalBlockNumber: bigint, withdrawalId: bigint) {
     // 1. Wait for state oracle update
     console.log("Waiting for state oracle update...");
     await waitForEthStateUpdate(withdrawalBlockNumber);
@@ -261,7 +333,7 @@ export default function ChatInterface() {
     const proof = await generateWithdrawalProof(withdrawalId);
 
     // 3. Claim tokens with proof
-    const deposit = new ethers.Contract(ETH_CONTRACTS.TOKEN_DEPOSIT, TOKEN_DEPOSIT_ABI, ethSigner);
+    const deposit = new ethers.Contract(ETH_CONTRACTS.TOKEN_DEPOSIT, TOKEN_DEPOSIT_ABI, walletClient);
     const tx = await deposit.claim(withdrawalTxHash, proof);
     const receipt = await tx.wait();
 

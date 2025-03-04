@@ -57,6 +57,15 @@ export interface Transaction {
   details: Record<string, any>;
 }
 
+export interface ValidatorInfo {
+  validatorId: number;
+  status: number;
+  totalStake: string;
+  apr: number;
+  uptime: number;
+  commission: number;
+}
+
 export interface StakeData {
   id: string;
   token: string;
