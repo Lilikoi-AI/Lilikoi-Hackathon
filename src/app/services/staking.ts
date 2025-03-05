@@ -113,12 +113,48 @@ export class StakingService {
     })
   }
 
+  async getCurrentEpoch() {
+    return await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: sfcAbi,
+      functionName: 'currentEpoch',
+      args: []
+    })
+  }
+
+  async getEpochValidatorIDs(epoch: bigint) {
+    return await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: sfcAbi,
+      functionName: 'getEpochValidatorIDs',
+      args: [epoch]
+    })
+  }
+
   async getPendingRewards(address: `0x${string}`, validatorId: number) {
     return await this.publicClient.readContract({
       address: this.contractAddress,
       abi: sfcAbi,
       functionName: 'pendingRewards',
       args: [address, BigInt(validatorId)]
+    })
+  }
+
+  async getLastValidatorID() {
+    return await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: sfcAbi,
+      functionName: 'lastValidatorID',
+      args: []
+    })
+  }
+
+  async getValidator(validatorId: number) {
+    return await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: sfcAbi,
+      functionName: 'getValidator',
+      args: [BigInt(validatorId)]
     })
   }
 } 

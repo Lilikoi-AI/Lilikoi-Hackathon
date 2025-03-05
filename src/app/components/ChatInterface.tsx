@@ -12,6 +12,7 @@ import { fetchValidatorsList } from '../services/actions/api';
 import { STAKING_CONFIG } from '../config/staking';
 import { ValidatorInfo } from '../services/actions/types';
 import { StakingService } from '../services/staking';
+import { formatEther, parseEther } from 'viem';
 
 interface Message {
   role: 'user' | 'assistant'
@@ -132,6 +133,159 @@ export default function ChatInterface() {
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: `Error: ${errorMessage}. Please make sure you have enough S tokens and have approved the transaction.`
+          }]);
+          setAnswer(''); // Clear loading message
+          return;
+        }
+      }
+
+      // Handle getUserStakingPositions action
+      if (routerResult.action === "getUserStakingPositions") {
+        try {
+          setAnswer("Fetching your staking positions...");
+          
+          if (!publicClient || !walletClient || !address) {
+            throw new Error('Wallet not connected');
+          }
+
+          const staking = new StakingService(publicClient, walletClient);
+          const currentEpoch = await staking.getCurrentEpoch();
+          const validatorIds = await staking.getEpochValidatorIDs(currentEpoch);
+          
+          const positions = await Promise.all(validatorIds.map(async (id: bigint) => {
+            const stake = await staking.getStake(address as `0x${string}`, Number(id));
+            const rewards = await staking.getPendingRewards(address as `0x${string}`, Number(id));
+            
+            return {
+              validatorId: Number(id),
+              stakedAmount: formatEther(stake),
+              pendingRewards: formatEther(rewards)
+            };
+          }));
+
+          const activePositions = positions.filter(p => parseFloat(p.stakedAmount) > 0);
+
+          if (activePositions.length === 0) {
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: 'You currently have no active staking positions.'
+            }]);
+            setAnswer('');
+            return;
+          }
+
+          const positionsMessage = activePositions.map(pos => 
+            `Validator #${pos.validatorId}\n` +
+            `• Staked Amount: ${pos.stakedAmount} S\n` +
+            `• Pending Rewards: ${pos.pendingRewards} S`
+          ).join('\n\n');
+
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Your Active Staking Positions:\n\n${positionsMessage}`
+          }]);
+          setAnswer('');
+          return;
+        } catch (error: any) {
+          console.error('Error fetching staking positions:', error);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Error: ${error.message || 'Failed to fetch staking positions'}. Please ensure you are connected to the Sonic network and try again.`
+          }]);
+          setAnswer('');
+          return;
+        }
+      }
+
+      // Handle unstaking action
+      if (routerResult.action === "unstakeSTokens") {
+        try {
+          const { validatorId, amount } = routerResult.parameters;
+          setAnswer(`Checking your staking positions...`);
+          
+          if (!publicClient || !walletClient || !address) {
+            throw new Error('Wallet not connected');
+          }
+          
+          const staking = new StakingService(publicClient, walletClient);
+          
+          // First get current epoch and active validators
+          const currentEpoch = await staking.getCurrentEpoch();
+          const validatorIds = await staking.getEpochValidatorIDs(currentEpoch);
+          
+          // Find the user's position with the specified validator
+          const stake = await staking.getStake(address as `0x${string}`, parseInt(validatorId));
+          const amountToUnstake = parseEther(amount);
+          
+          if (stake === BigInt(0)) {
+            throw new Error(`You don't have any tokens staked with validator #${validatorId}`);
+          }
+          
+          if (stake < amountToUnstake) {
+            throw new Error(`Insufficient stake. You only have ${formatEther(stake)} S staked with validator #${validatorId}`);
+          }
+          
+          // Check if validator is active in current epoch
+          if (!validatorIds.map(id => Number(id)).includes(parseInt(validatorId))) {
+            throw new Error(`Validator #${validatorId} is not active in the current epoch`);
+          }
+          
+          // Get next wrID and undelegate
+          setAnswer(`Preparing withdrawal request...`);
+          const hash = await staking.unstake(parseInt(validatorId), amount);
+          
+          const message = `Successfully initiated unstaking of ${amount} S tokens from validator #${validatorId}.\nTransaction hash: ${hash}\n\nNote: Your tokens will be locked for 2 epochs before they can be withdrawn.`;
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: message
+          }]);
+          setAnswer(''); // Clear loading message
+          return;
+        } catch (error: any) {
+          console.error('Unstaking failed:', error);
+          const errorMessage = error.message || 'Failed to unstake tokens';
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Error: ${errorMessage}. Please try again.`
+          }]);
+          setAnswer(''); // Clear loading message
+          return;
+        }
+      }
+
+      // Handle claim rewards action
+      if (routerResult.action === "claimSRewards") {
+        try {
+          const { validatorId } = routerResult.parameters;
+          setAnswer(`Initiating claim of rewards from validator #${validatorId}...`);
+          
+          if (!publicClient || !walletClient) {
+            throw new Error('Wallet not connected');
+          }
+          
+          const staking = new StakingService(publicClient, walletClient);
+          
+          // Check pending rewards first
+          const rewards = await staking.getPendingRewards(address as `0x${string}`, parseInt(validatorId));
+          if (rewards === BigInt(0)) {
+            throw new Error('No rewards to claim');
+          }
+          
+          const hash = await staking.claimRewards(parseInt(validatorId));
+          
+          const message = `Successfully claimed rewards from validator #${validatorId}.\nTransaction hash: ${hash}`;
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: message
+          }]);
+          setAnswer(''); // Clear loading message
+          return;
+        } catch (error: any) {
+          console.error('Claiming rewards failed:', error);
+          const errorMessage = error.message || 'Failed to claim rewards';
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Error: ${errorMessage}. Please try again.`
           }]);
           setAnswer(''); // Clear loading message
           return;

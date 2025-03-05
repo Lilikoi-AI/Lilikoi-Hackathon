@@ -73,3 +73,9 @@ export interface StakeData {
   apr: string;
   tvl: string;
 }
+
+export interface StakingPosition {
+  validatorId: number;
+  stakedAmount: string;
+  pendingRewards: string;
+}

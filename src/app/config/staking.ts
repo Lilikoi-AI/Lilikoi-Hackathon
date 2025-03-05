@@ -6,7 +6,7 @@ export const STAKING_CONFIG = {
   S_TOKEN: process.env.NEXT_PUBLIC_S_TOKEN_ADDRESS || '0x8c8687fC965593DFb2F0b4EAeFD55E9D8df348df',
   
   // Minimum stake amount in S tokens
-  MIN_STAKE: '100',
+  MIN_STAKE: '0.0001',
   
   // Lock period in epochs
   LOCK_PERIOD: 2,

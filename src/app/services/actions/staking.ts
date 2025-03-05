@@ -3,6 +3,8 @@ import { parseEther } from 'viem';
 import { stakingHandlers } from './handlers';
 import { handleValidatorsList } from './handlers';
 import { STAKING_CONFIG } from '../../config/staking';
+import { handleUserStakingPositions } from './handlers';
+import { ActionContext } from './types';
 
 export const stakingActions: ActionDefinition[] = [
   {
@@ -25,19 +27,11 @@ export const stakingActions: ActionDefinition[] = [
     validate: (params: Record<string, any>) => {
       const amount = parseFloat(params.amount as string);
       const validatorId = parseInt(params.validatorId as string);
-      const minStake = parseFloat(STAKING_CONFIG.MIN_STAKE);
 
       if (isNaN(amount) || amount <= 0) {
         return {
           isValid: false,
           error: 'Please specify a valid amount of S tokens to stake'
-        };
-      }
-
-      if (amount < minStake) {
-        return {
-          isValid: false,
-          error: `Minimum stake amount is ${minStake} S tokens`
         };
       }
 
@@ -94,5 +88,24 @@ export const stakingActions: ActionDefinition[] = [
       };
     },
     handler: stakingHandlers.unstakeSTokens
+  },
+  {
+    name: 'getUserStakingPositions',
+    description: 'Get list of user staking positions across all validators',
+    parameters: {},
+    validate: () => ({
+      isValid: true,
+      error: null
+    }),
+    handler: async (params: Record<string, any>, context: ActionContext) => {
+      if (!context.walletAddress) {
+        return {
+          type: 'ERROR',
+          data: { error: 'Wallet not connected' },
+          message: 'Please connect your wallet to view your staking positions.'
+        };
+      }
+      return handleUserStakingPositions(context.walletAddress, context);
+    }
   }
 ]; 

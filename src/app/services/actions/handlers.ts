@@ -14,6 +14,7 @@ import { StakingService } from '../staking';
 import { ActionContext } from './types';
 import { STAKING_CONFIG } from '../../config/staking';
 import { signActionMessage } from '../../utils/signing';
+import { formatEther } from 'ethers';
 
 export async function handleTokenBalance(walletAddress: string, tokenAddress: string): Promise<ActionResponse> {
   try {
@@ -148,6 +149,74 @@ export async function handleValidatorsList(): Promise<ActionResponse> {
       type: 'ERROR',
       data: { error },
       message: 'Unable to fetch validators list. Please ensure you are connected to the Sonic network and try again.'
+    };
+  }
+}
+
+export async function handleUserStakingPositions(address: string, context: ActionContext): Promise<ActionResponse> {
+  try {
+    if (!context.publicClient || !context.walletClient) {
+      throw new Error('Wallet not connected');
+    }
+
+    const staking = new StakingService(
+      context.publicClient,
+      context.walletClient
+    );
+
+    // Get current epoch and active validators
+    const currentEpoch = await staking.getCurrentEpoch();
+    console.log('Current epoch:', currentEpoch.toString());
+    
+    const activeValidatorIds = await staking.getEpochValidatorIDs(currentEpoch);
+    console.log('Active validators in current epoch:', activeValidatorIds.map(id => Number(id)).join(', '));
+
+    // Check stakes for all active validators
+    const positions = await Promise.all(
+      activeValidatorIds.map(async (id) => {
+        const validatorId = Number(id);
+        const stake = await staking.getStake(address as `0x${string}`, validatorId);
+        const rewards = await staking.getPendingRewards(address as `0x${string}`, validatorId);
+        
+        if (parseFloat(formatEther(stake)) > 0) {
+          console.log(`Found stake with Validator #${validatorId}:`, formatEther(stake));
+        }
+        
+        return {
+          validatorId,
+          stakedAmount: formatEther(stake),
+          pendingRewards: formatEther(rewards)
+        };
+      })
+    );
+
+    const activePositions = positions.filter(p => parseFloat(p.stakedAmount) > 0);
+
+    if (activePositions.length === 0) {
+      return {
+        type: 'USER_STAKING_POSITIONS',
+        data: [],
+        message: 'You currently have no active staking positions.'
+      };
+    }
+
+    const positionsMessage = activePositions.map(pos => 
+      `Validator #${pos.validatorId}\n` +
+      `• Staked Amount: ${pos.stakedAmount} S\n` +
+      `• Pending Rewards: ${pos.pendingRewards} S`
+    ).join('\n\n');
+
+    return {
+      type: 'USER_STAKING_POSITIONS',
+      data: activePositions,
+      message: `Your Active Staking Positions:\n\n${positionsMessage}`
+    };
+  } catch (error) {
+    console.error('Error fetching user staking positions:', error);
+    return {
+      type: 'ERROR',
+      data: { error },
+      message: 'Failed to fetch your staking positions. Please ensure you are connected to the Sonic network and try again.'
     };
   }
 }
