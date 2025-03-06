@@ -78,7 +78,7 @@ class SonicAgent {
       return null;
     }
 
-    if (!action.validator(message, walletAddress)) {
+    if (!action.validate(message, walletAddress)) {
       console.error('Action validation failed:', route.action);
       return null;
     }

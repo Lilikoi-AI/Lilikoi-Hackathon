@@ -98,6 +98,24 @@ export async function handleTransactionHistory(walletAddress: string): Promise<A
   }
 }
 
+export async function handleBridgeTokens(): Promise<ActionResponse> {
+  try {
+    const bridgeData = await fetchBridgeData();
+    return {
+      type: 'BRIDGE_TOKENS',
+      data: bridgeData,
+      message: formatBridgeData(bridgeData)
+    };
+  } catch (error) {
+    console.error('Error fetching bridge data:', error);
+    return {  
+      type: 'ERROR',
+      data: { error },
+      message: 'Failed to fetch bridge data. Please try again later.'
+    };
+  }
+}
+
 export async function handleStakeOnSonic(): Promise<ActionResponse> {
   try {
     const stakeData = await fetchStakeData();
