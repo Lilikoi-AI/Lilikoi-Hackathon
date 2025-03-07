@@ -9,6 +9,8 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@debridge-finance/desdk": "^1.0.2",
+    "@debridge-finance/dln-client": "^17.6.2",
     "@elizaos/core": "^0.25.6-alpha.1",
     "@heroicons/react": "^2.2.0",
     "@tanstack/react-query": "^5.66.7",
@@ -19,11 +21,9 @@
     "openai": "^4.85.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "viem": "^2.23.3",
-    "wagmi": "^2.14.11",
-    "zod": "^3.24.2",
-    "@debridge-finance/desdk": "^1.0.2",
-    "@debridge-finance/dln-client": "^17.6.2"
+    "viem": "^2.23.5",
+    "wagmi": "^2.14.12",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

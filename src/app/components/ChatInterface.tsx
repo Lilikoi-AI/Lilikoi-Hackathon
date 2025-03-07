@@ -2,12 +2,17 @@
 'use client';
 
 import { useState } from 'react'
-import { useAccount, usePublicClient } from 'wagmi'
+import { useAccount, usePublicClient, useWalletClient } from 'wagmi'
 import { PaperAirplaneIcon } from '@heroicons/react/24/solid'
 import { AbiCoder, ethers } from 'ethers';
 import { useEthersSigner } from '@/app/hooks/useEthersSigner';
 import { ETH_CONTRACTS, SONIC_CONTRACTS } from '../constants/contract-addresses';
 import { BRIDGE_ABI, ERC20_ABI, STATE_ORACLE_ABI, TOKEN_DEPOSIT_ABI, TOKEN_PAIRS_ABI } from '../constants/sonic-abis';
+import { fetchValidatorsList } from '../services/actions/api';
+import { STAKING_CONFIG } from '../config/staking';
+import { ValidatorInfo } from '../services/actions/types';
+import { StakingService } from '../services/staking';
+import { formatEther, parseEther } from 'viem';
 
 interface Message {
   role: 'user' | 'assistant'
@@ -25,6 +30,7 @@ const sonicProvider = new ethers.JsonRpcProvider(SONIC_RPC);
 export default function ChatInterface() {
   const { address } = useAccount()
   const publicClient = usePublicClient()
+  const { data: walletClient } = useWalletClient()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -67,7 +73,227 @@ export default function ChatInterface() {
         throw new Error(routerResult.error);
       }
 
-      if (routerResult.parameters.fromChain === "ETHEREUM" || routerResult.parameters.fromChain === "BASE") {
+      // Handle validator list request first
+      if (routerResult.action === "getValidatorsList") {
+        try {
+          setAnswer("Fetching validators list...");
+          // Use the result directly from the first API call
+          const validatorsList = await fetchValidatorsList();
+          
+          // Format the validators data into a user-friendly message
+          const validatorsMessage = validatorsList.map(validator => 
+            `Validator #${validator.validatorId}\n` +
+            `• Status: ${validator.status === 1 ? '🟢 Active' : '🔴 Inactive'}\n` +
+            `• Total Stake: ${validator.totalStake} S\n` +
+            `• APR: ${validator.apr.toFixed(2)}%\n` +
+            `• Uptime: ${validator.uptime.toFixed(2)}%\n` +
+            `• Commission: ${validator.commission.toFixed(2)}%`
+          ).join('\n\n');
+
+          const message = `Available Validators:\n\n${validatorsMessage}\n\nTo stake with a validator, use their ID number. Minimum stake amount: ${STAKING_CONFIG.MIN_STAKE} S tokens.`;
+          
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: message
+          }]);
+          return; // Exit after handling validator list
+        } catch (error: any) {
+          console.error('Error fetching validators:', error);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Error: ${error.message || 'Failed to fetch validators list'}`
+          }]);
+          return; // Exit after error
+        }
+      }
+
+      // Handle staking action
+      if (routerResult.action === "stakeTokens") {
+        try {
+          const { validatorId, amount } = routerResult.parameters;
+          setAnswer(`Initiating staking of ${amount} S tokens to validator #${validatorId}...`);
+          
+          if (!publicClient || !walletClient) {
+            throw new Error('Wallet not connected');
+          }
+          
+          const staking = new StakingService(publicClient, walletClient);
+          const hash = await staking.stakeTokens(parseInt(validatorId), amount);
+          
+          const message = `Successfully initiated staking of ${amount} S tokens to validator #${validatorId}.\nTransaction hash: ${hash}`;
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: message
+          }]);
+          setAnswer(''); // Clear loading message
+          return;
+        } catch (error: any) {
+          console.error('Staking failed:', error);
+          const errorMessage = error.message || 'Failed to stake tokens';
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Error: ${errorMessage}. Please make sure you have enough S tokens and have approved the transaction.`
+          }]);
+          setAnswer(''); // Clear loading message
+          return;
+        }
+      }
+
+      // Handle getUserStakingPositions action
+      if (routerResult.action === "getUserStakingPositions") {
+        try {
+          setAnswer("Fetching your staking positions...");
+          
+          if (!publicClient || !walletClient || !address) {
+            throw new Error('Wallet not connected');
+          }
+
+          const staking = new StakingService(publicClient, walletClient);
+          const currentEpoch = await staking.getCurrentEpoch();
+          const validatorIds = await staking.getEpochValidatorIDs(currentEpoch);
+          
+          const positions = await Promise.all(validatorIds.map(async (id: bigint) => {
+            const stake = await staking.getStake(address as `0x${string}`, Number(id));
+            const rewards = await staking.getPendingRewards(address as `0x${string}`, Number(id));
+            
+            return {
+              validatorId: Number(id),
+              stakedAmount: formatEther(stake),
+              pendingRewards: formatEther(rewards)
+            };
+          }));
+
+          const activePositions = positions.filter(p => parseFloat(p.stakedAmount) > 0);
+
+          if (activePositions.length === 0) {
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: 'You currently have no active staking positions.'
+            }]);
+            setAnswer('');
+            return;
+          }
+
+          const positionsMessage = activePositions.map(pos => 
+            `Validator #${pos.validatorId}\n` +
+            `• Staked Amount: ${pos.stakedAmount} S\n` +
+            `• Pending Rewards: ${pos.pendingRewards} S`
+          ).join('\n\n');
+
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Your Active Staking Positions:\n\n${positionsMessage}`
+          }]);
+          setAnswer('');
+          return;
+        } catch (error: any) {
+          console.error('Error fetching staking positions:', error);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Error: ${error.message || 'Failed to fetch staking positions'}. Please ensure you are connected to the Sonic network and try again.`
+          }]);
+          setAnswer('');
+          return;
+        }
+      }
+
+      // Handle unstaking action
+      if (routerResult.action === "unstakeSTokens") {
+        try {
+          const { validatorId, amount } = routerResult.parameters;
+          setAnswer(`Checking your staking positions...`);
+          
+          if (!publicClient || !walletClient || !address) {
+            throw new Error('Wallet not connected');
+          }
+          
+          const staking = new StakingService(publicClient, walletClient);
+          
+          // First get current epoch and active validators
+          const currentEpoch = await staking.getCurrentEpoch();
+          const validatorIds = await staking.getEpochValidatorIDs(currentEpoch);
+          
+          // Find the user's position with the specified validator
+          const stake = await staking.getStake(address as `0x${string}`, parseInt(validatorId));
+          const amountToUnstake = parseEther(amount);
+          
+          if (stake === BigInt(0)) {
+            throw new Error(`You don't have any tokens staked with validator #${validatorId}`);
+          }
+          
+          if (stake < amountToUnstake) {
+            throw new Error(`Insufficient stake. You only have ${formatEther(stake)} S staked with validator #${validatorId}`);
+          }
+          
+          // Check if validator is active in current epoch
+          if (!validatorIds.map(id => Number(id)).includes(parseInt(validatorId))) {
+            throw new Error(`Validator #${validatorId} is not active in the current epoch`);
+          }
+          
+          // Get next wrID and undelegate
+          setAnswer(`Preparing withdrawal request...`);
+          const hash = await staking.unstake(parseInt(validatorId), amount);
+          
+          const message = `Successfully initiated unstaking of ${amount} S tokens from validator #${validatorId}.\nTransaction hash: ${hash}\n\nNote: Your tokens will be locked for 2 epochs before they can be withdrawn.`;
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: message
+          }]);
+          setAnswer(''); // Clear loading message
+          return;
+        } catch (error: any) {
+          console.error('Unstaking failed:', error);
+          const errorMessage = error.message || 'Failed to unstake tokens';
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Error: ${errorMessage}. Please try again.`
+          }]);
+          setAnswer(''); // Clear loading message
+          return;
+        }
+      }
+
+      // Handle claim rewards action
+      if (routerResult.action === "claimSRewards") {
+        try {
+          const { validatorId } = routerResult.parameters;
+          setAnswer(`Initiating claim of rewards from validator #${validatorId}...`);
+          
+          if (!publicClient || !walletClient) {
+            throw new Error('Wallet not connected');
+          }
+          
+          const staking = new StakingService(publicClient, walletClient);
+          
+          // Check pending rewards first
+          const rewards = await staking.getPendingRewards(address as `0x${string}`, parseInt(validatorId));
+          if (rewards === BigInt(0)) {
+            throw new Error('No rewards to claim');
+          }
+          
+          const hash = await staking.claimRewards(parseInt(validatorId));
+          
+          const message = `Successfully claimed rewards from validator #${validatorId}.\nTransaction hash: ${hash}`;
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: message
+          }]);
+          setAnswer(''); // Clear loading message
+          return;
+        } catch (error: any) {
+          console.error('Claiming rewards failed:', error);
+          const errorMessage = error.message || 'Failed to claim rewards';
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Error: ${errorMessage}. Please try again.`
+          }]);
+          setAnswer(''); // Clear loading message
+          return;
+        }
+      }
+
+      // Handle bridge operations
+      if (routerResult.parameters?.fromChain === "ETHEREUM") {
         try {
           // USDC details
           const USDC_ADDRESS = routerResult.parameters.tokenAddress;
@@ -88,21 +314,21 @@ export default function ChatInterface() {
         }
       }
 
-      if(routerResult.parameters.fromChain === "SONIC") {
+      if(routerResult.parameters?.fromChain === "SONIC") {
         try {
           // USDC details
           const USDC_ADDRESS = routerResult.parameters.tokenAddress;
           const amount = ethers.parseUnits(routerResult.parameters.amount, 6); // USDC has 6 decimals
 
-          // 1. Bridge USDC to Ethereum]
+          // 1. Bridge USDC to Ethereum
           console.log(USDC_ADDRESS, amount);
           setAnswer("Initiating bridge to Ethereum...");
-          const withdrawal = await bridgeToEthereum(signer, USDC_ADDRESS, amount);
+          const withdrawal = await bridgeToEthereum(walletClient, USDC_ADDRESS, amount);
           console.log(`Withdrawal successful: ${withdrawal.transactionHash}`);
 
           // 2. Claim USDC on Ethereum
           setAnswer("Waiting for state update and claiming on Ethereum...");
-          const claimTx = await claimOnEthereum(signer, withdrawal.transactionHash, withdrawal.blockNumber, withdrawal.withdrawalId);
+          const claimTx = await claimOnEthereum(walletClient, withdrawal.transactionHash, withdrawal.blockNumber, withdrawal.withdrawalId);
           console.log(`Claim successful: ${claimTx}`);
           setAnswer(`Claim successful: ${claimTx}`);
         } catch (error: any) {
@@ -122,7 +348,7 @@ export default function ChatInterface() {
     }
   };
 
-  async function bridgeToSonic (ethSigner: ethers.JsonRpcSigner, tokenAddress: string, amount: bigint) {
+  async function bridgeToSonic (walletClient: ethers.Wallet, tokenAddress: string, amount: bigint) {
     const tokenPairs = new ethers.Contract(ETH_CONTRACTS.TOKEN_PAIRS, TOKEN_PAIRS_ABI, ethProvider);
     const mintedToken = await tokenPairs.originalToMinted(tokenAddress);
     console.log(mintedToken);
@@ -131,12 +357,12 @@ export default function ChatInterface() {
     }
 
     // 2. Approve token spending
-    const token = new ethers.Contract(tokenAddress, ERC20_ABI, ethSigner);
+    const token = new ethers.Contract(tokenAddress, ERC20_ABI, walletClient);
     const approveTx = await token.approve(ETH_CONTRACTS.TOKEN_DEPOSIT, amount);
     await approveTx.wait();
 
     // 3. Deposit tokens
-    const deposit = new ethers.Contract(ETH_CONTRACTS.TOKEN_DEPOSIT, TOKEN_DEPOSIT_ABI, ethSigner);
+    const deposit = new ethers.Contract(ETH_CONTRACTS.TOKEN_DEPOSIT, TOKEN_DEPOSIT_ABI, walletClient);
     const tx = await deposit.deposit(Date.now(), tokenAddress, amount);
     console.log(tx);
     const receipt = await tx.wait();
@@ -182,7 +408,7 @@ export default function ChatInterface() {
     ]);
   }
 
-  async function claimOnSonic(sonicSigner: ethers.JsonRpcSigner, depositTxHash: string, depositBlockNumber: bigint, depositId: number) {
+  async function claimOnSonic(walletClient: ethers.Wallet, depositTxHash: string, depositBlockNumber: bigint) {
     console.log("Waiting for state oracle update...");
     setAnswer("Waiting for state oracle update...");
     await waitForStateUpdate(depositBlockNumber);
@@ -199,7 +425,7 @@ export default function ChatInterface() {
     return receipt.transactionHash;
   }
 
-  async function bridgeToEthereum(sonicSigner: ethers.JsonRpcSigner, tokenAddress: string, amount: bigint) {
+  async function bridgeToEthereum(walletClient: ethers.Wallet, tokenAddress: string, amount: bigint) {
     // 1. Check if token is supported
     const tokenPairs = new ethers.Contract(SONIC_CONTRACTS.TOKEN_PAIRS, TOKEN_PAIRS_ABI, sonicProvider);
     const originalToken = await tokenPairs.mintedToOriginal(tokenAddress);
@@ -208,7 +434,7 @@ export default function ChatInterface() {
     }
 
     // 2. Initiate withdrawal
-    const bridge = new ethers.Contract(SONIC_CONTRACTS.BRIDGE, BRIDGE_ABI, sonicSigner);
+    const bridge = new ethers.Contract(SONIC_CONTRACTS.BRIDGE, BRIDGE_ABI, walletClient);
     const tx = await bridge.withdraw(Date.now(), originalToken, amount);
     const receipt = await tx.wait();
 
@@ -252,7 +478,7 @@ export default function ChatInterface() {
     ]);
   }
 
-  async function claimOnEthereum(ethSigner: ethers.JsonRpcSigner, withdrawalTxHash: string, withdrawalBlockNumber: bigint, withdrawalId: bigint) {
+  async function claimOnEthereum(walletClient: ethers.Wallet, withdrawalTxHash: string, withdrawalBlockNumber: bigint, withdrawalId: bigint) {
     // 1. Wait for state oracle update
     console.log("Waiting for state oracle update...");
     await waitForEthStateUpdate(withdrawalBlockNumber);
@@ -262,7 +488,7 @@ export default function ChatInterface() {
     const proof = await generateWithdrawalProof(withdrawalId);
 
     // 3. Claim tokens with proof
-    const deposit = new ethers.Contract(ETH_CONTRACTS.TOKEN_DEPOSIT, TOKEN_DEPOSIT_ABI, ethSigner);
+    const deposit = new ethers.Contract(ETH_CONTRACTS.TOKEN_DEPOSIT, TOKEN_DEPOSIT_ABI, walletClient);
     const tx = await deposit.claim(withdrawalTxHash, proof);
     const receipt = await tx.wait();
 

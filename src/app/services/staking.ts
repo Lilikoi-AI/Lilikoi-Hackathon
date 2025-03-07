@@ -1,11 +1,11 @@
-import { type PublicClient, type WalletClient, parseEther, formatEther } from 'viem'
+import { PublicClient, WalletClient, parseEther, formatEther } from 'viem'
 import { sfcAbi } from '../contracts/sfc.abi'
 import { STAKING_CONFIG, getValidatorName } from '../config/staking'
 
 export class StakingService {
   private publicClient: PublicClient
   private walletClient: WalletClient
-  private contractAddress: string
+  private contractAddress: `0x${string}`
   private sTokenAddress: string
 
   constructor(
@@ -16,25 +16,27 @@ export class StakingService {
   ) {
     this.publicClient = publicClient
     this.walletClient = walletClient
-    this.contractAddress = contractAddress
+    this.contractAddress = contractAddress as `0x${string}`
     this.sTokenAddress = sTokenAddress
   }
 
-  async stakeTokens(validatorId: number, amount: string, signature: string) {
-    // First approve S tokens if needed
-    await this.checkAndApproveTokens(amount)
+  async stakeTokens(validatorId: number, amount: string) {
+    try {
+      const { request } = await this.publicClient.simulateContract({
+        address: this.contractAddress,
+        abi: sfcAbi,
+        functionName: 'delegate',
+        args: [BigInt(validatorId)],
+        value: parseEther(amount),
+        account: this.walletClient.account
+      })
 
-    const { request } = await this.publicClient.simulateContract({
-      address: this.contractAddress,
-      abi: sfcAbi,
-      functionName: 'delegate',
-      args: [validatorId],
-      value: parseEther(amount),
-      account: this.walletClient.account,
-      signature
-    })
-
-    return await this.walletClient.writeContract(request)
+      const hash = await this.walletClient.writeContract(request)
+      return hash
+    } catch (error) {
+      console.error('Delegation failed:', error)
+      throw error
+    }
   }
 
   private async checkAndApproveTokens(amount: string) {
@@ -42,42 +44,55 @@ export class StakingService {
     // This depends on whether the S token requires approval before staking
   }
 
-  async getStakedBalance(address: string, validatorId: number) {
-    const delegation = await this.getDelegation(address, validatorId)
-    return formatEther(delegation.amount)
+  async getStakedBalance(address: `0x${string}`, validatorId: number) {
+    const stake = await this.getStake(address, validatorId)
+    return formatEther(stake)
   }
 
-  async getAllValidators() {
-    return STAKING_CONFIG.VALIDATORS.map(v => ({
-      id: v.id,
-      name: getValidatorName(v.id)
-    }))
-  }
-
-  async claimRewards(validatorId: number, signature: string) {
+  async claimRewards(validatorId: number) {
     const { request } = await this.publicClient.simulateContract({
       address: this.contractAddress,
       abi: sfcAbi,
       functionName: 'claimRewards',
-      args: [validatorId],
-      account: this.walletClient.account,
-      signature
+      args: [BigInt(validatorId)],
+      account: this.walletClient.account
     })
 
     return await this.walletClient.writeContract(request)
   }
 
-  async unstake(validatorId: number, amount: string, signature: string) {
+  async unstake(validatorId: number, amount: string) {
+    // Get next wrID
+    const wrID = await this.getNextWrID(this.walletClient.account?.address as `0x${string}`, validatorId)
+
     const { request } = await this.publicClient.simulateContract({
       address: this.contractAddress,
       abi: sfcAbi,
       functionName: 'undelegate',
-      args: [validatorId, parseEther(amount)],
-      account: this.walletClient.account,
-      signature
+      args: [BigInt(validatorId), BigInt(wrID), parseEther(amount)],
+      account: this.walletClient.account
     })
 
     return await this.walletClient.writeContract(request)
+  }
+
+  private async getNextWrID(delegator: `0x${string}`, validatorId: number) {
+    let wrID = 0
+    while (true) {
+      const request = await this.publicClient.readContract({
+        address: this.contractAddress,
+        abi: sfcAbi,
+        functionName: 'getWithdrawalRequest',
+        args: [delegator, BigInt(validatorId), BigInt(wrID)]
+      })
+
+      // Check if the withdrawal request exists
+      const amount = (request as any)[0] as bigint
+      if (amount === BigInt(0)) {
+        return wrID
+      }
+      wrID++
+    }
   }
 
   async getValidatorInfo(validatorId: number) {
@@ -85,25 +100,61 @@ export class StakingService {
       address: this.contractAddress,
       abi: sfcAbi,
       functionName: 'getValidator',
-      args: [validatorId]
+      args: [BigInt(validatorId)]
     })
   }
 
-  async getDelegation(address: string, validatorId: number) {
+  async getStake(address: `0x${string}`, validatorId: number) {
     return await this.publicClient.readContract({
       address: this.contractAddress,
       abi: sfcAbi,
-      functionName: 'getDelegation',
-      args: [address, validatorId]
+      functionName: 'getStake',
+      args: [address, BigInt(validatorId)]
     })
   }
 
-  async getPendingRewards(address: string, validatorId: number) {
+  async getCurrentEpoch() {
+    return await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: sfcAbi,
+      functionName: 'currentEpoch',
+      args: []
+    })
+  }
+
+  async getEpochValidatorIDs(epoch: bigint) {
+    return await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: sfcAbi,
+      functionName: 'getEpochValidatorIDs',
+      args: [epoch]
+    })
+  }
+
+  async getPendingRewards(address: `0x${string}`, validatorId: number) {
     return await this.publicClient.readContract({
       address: this.contractAddress,
       abi: sfcAbi,
       functionName: 'pendingRewards',
-      args: [address, validatorId]
+      args: [address, BigInt(validatorId)]
+    })
+  }
+
+  async getLastValidatorID() {
+    return await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: sfcAbi,
+      functionName: 'lastValidatorID',
+      args: []
+    })
+  }
+
+  async getValidator(validatorId: number) {
+    return await this.publicClient.readContract({
+      address: this.contractAddress,
+      abi: sfcAbi,
+      functionName: 'getValidator',
+      args: [BigInt(validatorId)]
     })
   }
 } 

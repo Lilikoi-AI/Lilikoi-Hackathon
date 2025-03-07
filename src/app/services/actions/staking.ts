@@ -1,28 +1,49 @@
 import { ActionDefinition } from './types';
 import { stakingHandlers } from './handlers';
+import { handleValidatorsList } from './handlers';
+import { STAKING_CONFIG } from '../../config/staking';
+import { handleUserStakingPositions } from './handlers';
+import { ActionContext } from './types';
 
 export const stakingActions: ActionDefinition[] = [
   {
+    name: 'getValidatorsList',
+    description: 'Get list of available Sonic validators with their stats',
+    parameters: {},
+    validate: () => ({
+      isValid: true,
+      error: null
+    }),
+    handler: async () => handleValidatorsList()
+  },
+  {
     name: 'stakeTokens',
-    description: 'Stake Sonic (S) tokens to earn rewards',
+    description: 'Stake Sonic (S) tokens with a validator to earn rewards',
     parameters: {
-      validatorId: 'Validator ID to stake to',
-      amount: 'Amount of S tokens to stake',
+      validatorId: 'The ID number of the validator to stake with',
+      amount: 'Amount of S tokens to stake (minimum 100 S)',
     },
-    validate: (params) => {
-      const amount = parseFloat(params.amount);
-      const validatorId = parseInt(params.validatorId);
+    validate: (params: Record<string, any>) => {
+      const amount = parseFloat(params.amount as string);
+      const validatorId = parseInt(params.validatorId as string);
+
+      if (isNaN(amount) || amount <= 0) {
+        return {
+          isValid: false,
+          error: 'Please specify a valid amount of S tokens to stake'
+        };
+      }
+
+      if (isNaN(validatorId) || validatorId <= 0) {
+        return {
+          isValid: false,
+          error: 'Please specify a valid validator ID'
+        };
+      }
+
       return {
-        isValid: 
-          !isNaN(amount) && 
-          amount > 0 && 
-          !isNaN(validatorId) && 
-          validatorId > 0,
-        error: isNaN(amount) || amount <= 0 
-          ? 'Invalid S token amount' 
-          : isNaN(validatorId) || validatorId <= 0
-          ? 'Invalid validator ID'
-          : null
+        isValid: true,
+        error: null
       };
     },
     handler: stakingHandlers.stakeTokens
@@ -72,5 +93,24 @@ export const stakingActions: ActionDefinition[] = [
       };
     },
     handler: stakingHandlers.unstakeSTokens
+  },
+  {
+    name: 'getUserStakingPositions',
+    description: 'Get list of user staking positions across all validators',
+    parameters: {},
+    validate: () => ({
+      isValid: true,
+      error: null
+    }),
+    handler: async (params: Record<string, any>, context: ActionContext) => {
+      if (!context.walletAddress) {
+        return {
+          type: 'ERROR',
+          data: { error: 'Wallet not connected' },
+          message: 'Please connect your wallet to view your staking positions.'
+        };
+      }
+      return handleUserStakingPositions(context.walletAddress, context);
+    }
   }
 ]; 
