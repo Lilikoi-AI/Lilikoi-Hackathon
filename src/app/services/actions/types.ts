@@ -1,5 +1,4 @@
-import { Action } from '@elizaos/core';
-
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export interface ActionResponse {
   type: string;

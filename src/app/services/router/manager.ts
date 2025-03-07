@@ -45,6 +45,13 @@ For S token staking:
   }
 }
 
+For getting all active validators:
+{
+  "action": "getAllValidators",
+  "confidence": 0.95,
+  "parameters": {}
+}
+
 For claiming S token rewards:
 {
   "action": "claimSRewards",
@@ -67,6 +74,7 @@ For unstaking S tokens:
 Available chains for bridging: ${Object.keys(DEBRIDGE_CONFIG.CHAINS).join(', ')}
 Available validators for staking: ${STAKING_CONFIG.VALIDATORS.map(v => v.id).join(', ')}
 Minimum stake amount: ${STAKING_CONFIG.MIN_STAKE} S tokens
+Availabe token addresses: ${Object.keys(DEBRIDGE_CONFIG.TOKENS).join(', ')}
 
 DO NOT include any explanatory text. ONLY return the JSON object.`;
   }
