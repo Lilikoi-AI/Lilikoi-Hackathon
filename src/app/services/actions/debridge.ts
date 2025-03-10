@@ -4,6 +4,7 @@ import { signActionMessage } from '../../utils/signing';
 import { DeBridgeService } from '../../services/debridge';
 
 export const debridgeActions: ActionDefinition[] = [
+  /*
   {
     name: 'bridgeTokens',
     description: `Bridge tokens between supported chains (${Object.keys(DEBRIDGE_CONFIG.CHAINS).join(', ')})`,
@@ -61,6 +62,7 @@ export const debridgeActions: ActionDefinition[] = [
       });
     }
   },
+  */
   {
     name: 'crossChainMessage',
     description: 'Send a message across chains using deBridge protocol',

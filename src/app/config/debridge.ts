@@ -10,7 +10,7 @@ export const SUPPORTED_CHAINS = {
     POLYGON: { id: 137, name: 'Polygon' },
     AVALANCHE: { id: 43114, name: 'Avalanche' },
     BASE: { id: 8453, name: 'Base' },
-    SONIC: { id: 146, name: 'Sonic' }
+    SONIC: { id: 100000014, name: 'Sonic' }
   },
   TESTNET: {
     GOERLI: { id: 5, name: 'Goerli' },
@@ -23,8 +23,8 @@ export const SUPPORTED_CHAINS = {
 // Contract addresses
 export const DEBRIDGE_CONTRACTS = {
   MAINNET: {
-    DEBRIDGE_GATE: '0x43dE2d77BF8027e25dBD219c65D00a547eB30d37',
-    CALL_PROXY: '0x9f3B8679c73C2Fef8b59B4f3444d4e156fb70AA5'
+    DEBRIDGE_GATE: '0x43dE2d77BF8027e25dBD179B491e8d64f38398aA',
+    CALL_PROXY: '0x8a0C79F5532f3b2a16AD1E4282A5DAF81928a824'
   },
   TESTNET: {
     DEBRIDGE_GATE: '0x68D936Cb4723BdD38C488FD50514803f96789d2D',
@@ -76,10 +76,27 @@ export const getChainName = (chainId: number, isTestnet = false): string | null 
   return chain?.name || null
 }
 
-// Get chain ID by name
+// Get chain ID by name (case-insensitive)
 export const getChainId = (chainName: string, isTestnet = false): number | null => {
   const chains = isTestnet ? SUPPORTED_CHAINS.TESTNET : SUPPORTED_CHAINS.MAINNET
-  return Object.values(chains).find(chain => chain.name === chainName)?.id || null
+  
+  // Normalize the chain name to uppercase for case-insensitive comparison
+  const normalizedChainName = chainName.toUpperCase();
+  
+  // Handle common variations
+  if (normalizedChainName === 'ETH') return chains.ETHEREUM.id;
+  if (normalizedChainName === 'ETHEREUM MAINNET') return chains.ETHEREUM.id;
+  if (normalizedChainName === 'SONIC BLOCKCHAIN' || normalizedChainName === 'SONIC CHAIN') return chains.SONIC.id;
+  
+  // First try direct key lookup (most efficient)
+  if (chains[normalizedChainName as keyof typeof chains]) {
+    return chains[normalizedChainName as keyof typeof chains].id;
+  }
+  
+  // If direct lookup fails, try case-insensitive name comparison
+  return Object.values(chains).find(
+    chain => chain.name.toUpperCase() === normalizedChainName
+  )?.id || null;
 }
 
 export const DEBRIDGE_TESTNET_CONFIG = {

@@ -99,3 +99,27 @@ export const formatBridgeResponse = (params: any, result: any) => {
 
   return `Successfully initiated bridge of ${params.amount} ${tokenType} from ${params.fromChain} to ${params.toChain}. Transaction hash: ${result.hash}`;
 };
+
+export function formatWalletTokens(tokens: any[]): string {
+  if (!tokens || tokens.length === 0) {
+    return 'No tokens found in your wallet.';
+  }
+  
+  let message = 'Your wallet contains the following tokens:\n\n';
+  
+  tokens.forEach((token, index) => {
+    message += `${index + 1}. ${token.symbol} (${token.name})\n`;
+    message += `   Balance: ${token.balance} ${token.symbol}\n`;
+    message += `   Value: $${token.usdValue}\n`;
+    message += `   Address: ${token.address}\n`;
+    
+    if (index < tokens.length - 1) {
+      message += '\n';
+    }
+  });
+  
+  const totalValue = tokens.reduce((sum, token) => sum + parseFloat(token.usdValue), 0);
+  message += `\nTotal Value: $${totalValue.toFixed(2)}`;
+  
+  return message;
+}

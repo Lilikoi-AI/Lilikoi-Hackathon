@@ -5,9 +5,10 @@ import {
   fetchYieldFarms,
   fetchTransactionHistory,
   fetchStakeData,
-  fetchValidatorsList
+  fetchValidatorsList,
+  fetchWalletTokens
 } from './api';
-import { formatTokenBalance, formatLiquidityPools, formatYieldFarms, formatTransactions, formatStakeData } from './formatters';
+import { formatTokenBalance, formatLiquidityPools, formatYieldFarms, formatTransactions, formatStakeData, formatWalletTokens } from './formatters';
 import { FALLBACK_MESSAGES } from '../../config/constants';
 import { ActionResponse } from './types';
 import { StakingService } from '../staking';
@@ -15,6 +16,9 @@ import { ActionContext } from './types';
 import { STAKING_CONFIG } from '../../config/staking';
 import { signActionMessage } from '../../utils/signing';
 import { formatEther } from 'ethers';
+import { DeBridgeService } from '../debridge';
+import { getTokenAddress, getDebridgeChainId, DEBRIDGE_CHAIN_IDS } from './debridge-token';
+import { getTokenDecimals } from './debridge-token';
 
 export async function handleTokenBalance(walletAddress: string, tokenAddress: string): Promise<ActionResponse> {
   try {
@@ -98,20 +102,19 @@ export async function handleTransactionHistory(walletAddress: string): Promise<A
   }
 }
 
-export async function handleBridgeTokens(): Promise<ActionResponse> {
+export async function handleBridgeTokens(walletAddress: string): Promise<ActionResponse> {
   try {
-    const bridgeData = await fetchBridgeData();
     return {
       type: 'BRIDGE_TOKENS',
-      data: bridgeData,
-      message: formatBridgeData(bridgeData)
+      data: null,
+      message: 'Please provide the source chain, destination chain, token, and amount to bridge.'
     };
   } catch (error) {
-    console.error('Error fetching bridge data:', error);
-    return {  
+    console.error('Error handling bridge tokens:', error);
+    return {
       type: 'ERROR',
       data: { error },
-      message: 'Failed to fetch bridge data. Please try again later.'
+      message: 'Failed to handle bridge tokens. Please try again later.'
     };
   }
 }
@@ -239,6 +242,178 @@ export async function handleUserStakingPositions(address: string, context: Actio
   }
 }
 
+export async function handleDeBridgeTokens(
+  params: {
+    sourceChain: string;
+    destinationChain: string;
+    tokenSymbol: string;
+    amount: string;
+  },
+  context: ActionContext
+): Promise<ActionResponse> {
+  try {
+    if (!context.publicClient || !context.walletClient || !context.walletAddress) {
+      throw new Error('Wallet not connected');
+    }
+
+    // Validate parameters
+    if (!params.sourceChain || !params.destinationChain || !params.tokenSymbol || !params.amount) {
+      return {
+        type: 'ERROR',
+        data: { error: 'Missing parameters' },
+        message: 'Please provide source chain, destination chain, token symbol, and amount to bridge.'
+      };
+    }
+
+    // Get deBridge chain IDs
+    const sourceChainId = getDebridgeChainId(params.sourceChain.toUpperCase());
+    const destChainId = getDebridgeChainId(params.destinationChain.toUpperCase());
+    
+    console.log(`Source chain: ${params.sourceChain} (ID: ${sourceChainId})`);
+    console.log(`Destination chain: ${params.destinationChain} (ID: ${destChainId})`);
+    console.log(`Available chains: ${Object.keys(DEBRIDGE_CHAIN_IDS).join(', ')}`);
+
+    if (!sourceChainId) {
+      return {
+        type: 'ERROR',
+        data: { error: 'Unsupported source chain' },
+        message: `Unsupported source chain: ${params.sourceChain}. Supported chains: ${Object.keys(DEBRIDGE_CHAIN_IDS).join(', ')}`
+      };
+    }
+    
+    if (!destChainId) {
+      return {
+        type: 'ERROR',
+        data: { error: 'Unsupported destination chain' },
+        message: `Unsupported destination chain: ${params.destinationChain}. Supported chains: ${Object.keys(DEBRIDGE_CHAIN_IDS).join(', ')}`
+      };
+    }
+
+    // Import the actions to use getTokenAddress action
+    const { actions } = await import('./index');
+    const getTokenAddressAction = actions.find(action => action.name === 'getTokenAddress');
+    
+    if (!getTokenAddressAction) {
+      throw new Error('getTokenAddress action not found');
+    }
+    
+    // First, fetch the token address on the source chain using getTokenAddress action
+    console.log(`Fetching token address for ${params.tokenSymbol} on ${params.sourceChain} (chain ID: ${sourceChainId})`);
+    
+    const sourceTokenResult = await getTokenAddressAction.handler({
+      chainId: sourceChainId,
+      symbol: params.tokenSymbol
+    }, context);
+    
+    if (sourceTokenResult.type === 'ERROR' || !sourceTokenResult.data.address) {
+      return {
+        type: 'ERROR',
+        data: { error: 'Token not found' },
+        message: `Token ${params.tokenSymbol} not found on ${params.sourceChain}: ${sourceTokenResult.message}`
+      };
+    }
+    
+    const sourceTokenAddress = sourceTokenResult.data.address;
+    const isNativeToken = sourceTokenResult.data.isNativeToken;
+    const decimals = sourceTokenResult.data.decimals || 18;
+    
+    console.log(`Found token address on source chain: ${sourceTokenAddress}`);
+    console.log(`Token ${params.tokenSymbol} has ${decimals} decimals`);
+    
+    if (isNativeToken) {
+      console.log(`${params.tokenSymbol} is a native token`);
+    }
+
+    // Also fetch the token address on the destination chain for reference
+    console.log(`Fetching token address for ${params.tokenSymbol} on ${params.destinationChain} (chain ID: ${destChainId})`);
+    let destTokenAddress = null;
+    let destTokenDecimals = null;
+    let isDestNative = false;
+    
+    try {
+      const destTokenResult = await getTokenAddressAction.handler({
+        chainId: destChainId,
+        symbol: params.tokenSymbol
+      }, context);
+      
+      if (destTokenResult.type !== 'ERROR' && destTokenResult.data.address) {
+        destTokenAddress = destTokenResult.data.address;
+        destTokenDecimals = destTokenResult.data.decimals || 18;
+        isDestNative = destTokenResult.data.isNativeToken;
+        console.log(`Found token address on destination chain: ${destTokenAddress}`);
+      } else {
+        console.warn(`Token ${params.tokenSymbol} not found on destination chain ${params.destinationChain}. It may be created during bridging.`);
+      }
+    } catch (error) {
+      console.warn(`Warning: Could not fetch token ${params.tokenSymbol} on destination chain ${params.destinationChain}: ${error}`);
+      // We don't return an error here as the token might be created during bridging
+    }
+
+    // Initialize deBridge service
+    const deBridgeService = new DeBridgeService(
+      context.publicClient,
+      context.walletClient
+    );
+
+    // Prepare bridge parameters
+    const bridgeParams = {
+      sourceChain: params.sourceChain,
+      destinationChain: params.destinationChain,
+      tokenSymbol: params.tokenSymbol,
+      amount: params.amount,
+      receiver: context.walletAddress,
+      tokenAddress: sourceTokenAddress
+    };
+
+    // Get signature for the transaction
+    const signature = await signActionMessage(
+      context.walletClient,
+      'bridgeWithDeBridge',
+      bridgeParams
+    );
+
+    // Execute bridge transaction
+    const txHash = await deBridgeService.bridgeWithDeBridge(bridgeParams);
+
+    // Construct a detailed response message
+    let responseMessage = `Successfully initiated bridging of ${params.amount} ${params.tokenSymbol} from ${params.sourceChain} to ${params.destinationChain}.\n\n`;
+    responseMessage += `Source token address: ${sourceTokenAddress}${isNativeToken ? ' (Native Token)' : ''}\n`;
+    responseMessage += `Token decimals: ${decimals}\n`;
+    
+    if (destTokenAddress) {
+      responseMessage += `Destination token address: ${destTokenAddress}${isDestNative ? ' (Native Token)' : ''}\n`;
+    } else {
+      responseMessage += `Destination token address: Will be created during bridging\n`;
+    }
+    
+    responseMessage += `\nTransaction hash: ${txHash}\n\n`;
+    responseMessage += `Note: Bridging typically takes 5-15 minutes to complete. You can track the status of your transaction on the deBridge Explorer.`;
+
+    return {
+      type: 'BRIDGE_TOKENS',
+      data: {
+        txHash,
+        sourceChain: params.sourceChain,
+        destinationChain: params.destinationChain,
+        tokenSymbol: params.tokenSymbol,
+        amount: params.amount,
+        sourceTokenAddress,
+        isNativeToken,
+        decimals,
+        destTokenAddress: destTokenAddress || 'Will be created during bridging'
+      },
+      message: responseMessage
+    };
+  } catch (error: any) {
+    console.error('Error bridging tokens:', error);
+    return {
+      type: 'ERROR',
+      data: { error },
+      message: `Failed to bridge tokens: ${error.message || 'Unknown error'}`
+    };
+  }
+}
+
 export const stakingHandlers = {
   async stakeTokens(params: Record<string, any>, context: ActionContext) {
     if (!context.publicClient || !context.walletClient) {
@@ -329,4 +504,37 @@ export const stakingHandlers = {
     }
   }
 };
+
+export async function handleWalletTokens(walletAddress: string, chainId: string, context: ActionContext): Promise<ActionResponse> {
+  try {
+    console.log(`Fetching tokens for wallet ${walletAddress} on chain ${chainId}`);
+    
+    // Fetch tokens from the wallet
+    const tokens = await fetchWalletTokens(walletAddress, chainId);
+    
+    if (!tokens || tokens.length === 0) {
+      return {
+        type: 'WALLET_TOKENS',
+        data: { tokens: [] },
+        message: 'No tokens found in your wallet on this chain.'
+      };
+    }
+    
+    // Format the tokens for display
+    const formattedMessage = formatWalletTokens(tokens);
+    
+    return {
+      type: 'WALLET_TOKENS',
+      data: { tokens },
+      message: formattedMessage
+    };
+  } catch (error) {
+    console.error('Error fetching wallet tokens:', error);
+    return {
+      type: 'ERROR',
+      data: { error },
+      message: 'Failed to fetch tokens in your wallet. Please try again later.'
+    };
+  }
+}
 

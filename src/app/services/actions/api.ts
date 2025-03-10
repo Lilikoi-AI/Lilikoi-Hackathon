@@ -215,3 +215,62 @@ export async function fetchValidatorsList(): Promise<ValidatorInfo[]> {
 
   return validators;
 }
+
+export async function fetchWalletTokens(walletAddress: string, chainId: string): Promise<any[]> {
+  try {
+    console.log(`API: Fetching tokens for wallet ${walletAddress} on chain ${chainId}`);
+    
+    // For demonstration purposes, we'll return mock data
+    // In a real implementation, you would call an API or blockchain RPC
+    
+    // Mock data for Sonic chain (100000014)
+    if (chainId === '100000014') {
+      return [
+        {
+          symbol: 'S',
+          name: 'Sonic',
+          balance: '5.735',
+          decimals: 18,
+          address: '0x0000000000000000000000000000000000000000',
+          usdValue: '2.95'
+        },
+        {
+          symbol: 'USDC.e',
+          name: 'Bridged USDC (Sonic Labs)',
+          balance: '9.0',
+          decimals: 6,
+          address: '0x29219dd400f2bf60e5a23d13be72b486d4038894',
+          usdValue: '9.0'
+        }
+      ];
+    }
+    
+    // Mock data for Ethereum chain (1)
+    if (chainId === '1') {
+      return [
+        {
+          symbol: 'ETH',
+          name: 'Ethereum',
+          balance: '0.01',
+          decimals: 18,
+          address: '0x0000000000000000000000000000000000000000',
+          usdValue: '25.0'
+        },
+        {
+          symbol: 'USDC',
+          name: 'USD Coin',
+          balance: '10.0',
+          decimals: 6,
+          address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          usdValue: '10.0'
+        }
+      ];
+    }
+    
+    // Default empty response for other chains
+    return [];
+  } catch (error) {
+    console.error('Error in fetchWalletTokens:', error);
+    throw error;
+  }
+}
