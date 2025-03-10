@@ -220,55 +220,72 @@ export async function fetchWalletTokens(walletAddress: string, chainId: string):
   try {
     console.log(`API: Fetching tokens for wallet ${walletAddress} on chain ${chainId}`);
     
-    // For demonstration purposes, we'll return mock data
-    // In a real implementation, you would call an API or blockchain RPC
-    
-    // Mock data for Sonic chain (100000014)
+    // Create chain-specific provider
+    let provider: ethers.JsonRpcProvider;
+    if (chainId === '100000014') { // Sonic chain
+      provider = new ethers.JsonRpcProvider('https://rpc.soniclabs.com');
+    } else if (chainId === '1') { // Ethereum chain
+      provider = new ethers.JsonRpcProvider('https://eth-mainnet.g.alchemy.com/v2/RTdxwy09IcN2eTRQHBJw-Ve3_kij5z0O');
+    } else {
+      throw new Error(`Unsupported chain ID: ${chainId}`);
+    }
+
+    // Get native token balance
+    const nativeBalance = await provider.getBalance(walletAddress);
+    const nativeSymbol = chainId === '100000014' ? 'S' : 'ETH';
+    const nativeName = chainId === '100000014' ? 'Sonic' : 'Ethereum';
+
+    // Get token list based on chain
+    let tokenList = [];
     if (chainId === '100000014') {
-      return [
+      tokenList = [
         {
-          symbol: 'S',
-          name: 'Sonic',
-          balance: '5.735',
-          decimals: 18,
-          address: '0x0000000000000000000000000000000000000000',
-          usdValue: '2.95'
-        },
-        {
+          address: '0x29219dd400f2bf60e5a23d13be72b486d4038894',
           symbol: 'USDC.e',
           name: 'Bridged USDC (Sonic Labs)',
-          balance: '9.0',
-          decimals: 6,
-          address: '0x29219dd400f2bf60e5a23d13be72b486d4038894',
-          usdValue: '9.0'
+          decimals: 6
         }
       ];
-    }
-    
-    // Mock data for Ethereum chain (1)
-    if (chainId === '1') {
-      return [
+    } else if (chainId === '1') {
+      tokenList = [
         {
-          symbol: 'ETH',
-          name: 'Ethereum',
-          balance: '0.01',
-          decimals: 18,
-          address: '0x0000000000000000000000000000000000000000',
-          usdValue: '25.0'
-        },
-        {
+          address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
           symbol: 'USDC',
           name: 'USD Coin',
-          balance: '10.0',
-          decimals: 6,
-          address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-          usdValue: '10.0'
+          decimals: 6
         }
       ];
     }
-    
-    // Default empty response for other chains
-    return [];
+
+    // Get balances for all tokens
+    const tokenBalances = await Promise.all(
+      tokenList.map(async (token) => {
+        const contract = new ethers.Contract(
+          token.address,
+          ['function balanceOf(address) view returns (uint256)', 'function decimals() view returns (uint8)'],
+          provider
+        );
+        const balance = await contract.balanceOf(walletAddress);
+        return {
+          ...token,
+          balance: ethers.formatUnits(balance, token.decimals),
+          usdValue: '0' // TODO: Add price fetching
+        };
+      })
+    );
+
+    // Combine native token and other token balances
+    return [
+      {
+        symbol: nativeSymbol,
+        name: nativeName,
+        balance: ethers.formatEther(nativeBalance),
+        decimals: 18,
+        address: '0x0000000000000000000000000000000000000000',
+        usdValue: '0' // TODO: Add price fetching
+      },
+      ...tokenBalances
+    ];
   } catch (error) {
     console.error('Error in fetchWalletTokens:', error);
     throw error;

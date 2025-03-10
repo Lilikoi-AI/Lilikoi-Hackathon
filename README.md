@@ -1,36 +1,116 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Lilikoi - AI-Powered DeFi Assistant
+
+Lilikoi is an advanced AI-powered DeFi assistant that helps users interact with various blockchain functionalities through natural language conversations. Built with Next.js and integrated with multiple blockchain networks, Lilikoi makes DeFi operations accessible and user-friendly.
+
+🌐 **Live Demo**: [https://lilikoi-livid.vercel.app](https://lilikoi-livid.vercel.app)
+
+## Features
+
+### 🔄 Cross-Chain Operations
+
+- Bridge tokens between different blockchain networks
+- Track cross-chain transactions
+- View bridged token balances
+
+### 💰 Token Management
+
+- Check token balances across chains
+- View token prices and history
+- Set price alerts
+- Get token addresses
+
+### 🏊‍♂️ DeFi Operations
+
+- View liquidity pools
+- Check yield farming opportunities
+- Stake tokens
+- Track staking rewards
+
+### 📊 Portfolio Management
+
+- View portfolio overview
+- Track asset allocation
+- Get investment suggestions
+- Monitor transaction history
+
+### ⛽ Gas Management
+
+- Check current gas prices
+- View gas price history
+- Get gas cost estimates
+- Find optimal transaction times
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 20.x or higher
+- npm or yarn package manager
+- Environment variables (see below)
+
+### Installation
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/yourusername/lilikoi.git
+cd lilikoi
+```
+
+2. Install dependencies:
+
+```bash
+npm install
+```
+
+3. Create a `.env` file in the root directory with the following variables:
+
+```env
+# Required for wallet connection
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_wallet_connect_project_id
+
+# Required for chat functionality (use either OPENAI_API_KEY or NEXT_PUBLIC_OPENAI_API_KEY)
+NEXT_PUBLIC_OPENAI_API_KEY=your_openai_api_key
+# OPENAI_API_KEY=your_openai_api_key
+
+# Required for staking functionality
+NEXT_PUBLIC_SFC_CONTRACT_ADDRESS=0xFC00FACE00000000000000000000000000000000
+NEXT_PUBLIC_S_TOKEN_ADDRESS=0x8c8687fC965593DFb2F0b4EAeFD55E9D8df348df
+```
+
+4. Run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+5. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Architecture
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Lilikoi is built with:
 
-## Learn More
+- **Next.js** - React framework for production
+- **TypeScript** - Type-safe code
+- **Tailwind CSS** - Styling
+- **Wagmi** - Ethereum hooks
+- **Web3Modal** - Wallet connection
+- **OpenAI** - Natural language processing
 
-To learn more about Next.js, take a look at the following resources:
+## Project Structure
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/
+  ├── app/              # Next.js app directory
+  │   ├── components/   # React components
+  │   ├── services/     # Business logic and API calls
+  │   └── utils/        # Helper functions
+  ├── styles/           # Global styles
+  └── types/            # TypeScript type definitions
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## License
 
-## Deploy on Vercel
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAccount, usePublicClient, useWalletClient } from 'wagmi'
 import { PaperAirplaneIcon } from '@heroicons/react/24/solid'
 import { AbiCoder, ethers } from 'ethers';
@@ -68,6 +68,14 @@ export default function ChatInterface() {
   const signer = useEthersSigner() as ethers.JsonRpcSigner;
   const [answer, setAnswer] = useState<string>('');
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+
+  // Clear state when wallet changes
+  useEffect(() => {
+    setMessages([])
+    setInput('')
+    setAnswer('')
+    setActiveDropdown(null)
+  }, [address])
 
   // Example queries organized by category
   const exampleQueriesMap = {
