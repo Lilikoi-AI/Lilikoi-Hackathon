@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { ConnectWalletButton } from './components/WalletConnect';
 import ChatInterface from './components/ChatInterface';
-import { PlusIcon } from '@heroicons/react/24/outline';
+import Image from 'next/image';
 
 export default function Home() {
   const { isConnected } = useAccount();
@@ -20,14 +20,17 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-black">
       {/* Top Navigation Bar */}
       <div className="w-full border-b border-purple-500/20">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <button className="px-4 py-2 text-purple-100 border border-purple-500/20 rounded-lg hover:bg-purple-500/10 transition-all flex items-center gap-2">
-            <PlusIcon className="h-5 w-5" />
-            New Chat
-          </button>
-          <ConnectWalletButton />
-        </div>
-      </div>
+  <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+    <Image 
+      src="/logo/lilikoi-removebg-preview.webp"
+      alt="Lilikoi Logo"
+      width={360}
+      height={360}
+      className="h-20 w-auto mix-blend-screen"
+    />
+    <ConnectWalletButton />
+  </div>
+</div>
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-8">

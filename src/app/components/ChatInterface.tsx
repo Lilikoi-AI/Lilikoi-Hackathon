@@ -96,7 +96,7 @@ export default function ChatInterface() {
     ],
     prices: [
       "What's the current price of ETH?",
-      "What is the price of USDC.e on sonic?",
+      "What is the price of USDC.e?",
       
     ],
     
