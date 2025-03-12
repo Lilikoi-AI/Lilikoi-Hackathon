@@ -11,6 +11,14 @@ const nextConfig: NextConfig = {
   images: {
     domains: ['app.lilikoi.fun'],
   },
+  async rewrites() {
+    return [
+      {
+        source: '/api/defi/:path*',
+        destination: 'https://yields.llama.fi/:path*',
+      },
+    ];
+  },
   async headers() {
     return [
       {
@@ -36,6 +44,18 @@ const nextConfig: NextConfig = {
             key: 'X-Content-Type-Options',
             value: 'nosniff'
           },
+          {
+            key: 'Access-Control-Allow-Origin',
+            value: '*'
+          },
+          {
+            key: 'Access-Control-Allow-Methods',
+            value: 'GET, POST, OPTIONS'
+          },
+          {
+            key: 'Access-Control-Allow-Headers',
+            value: 'Content-Type, Authorization'
+          }
         ],
       },
     ];

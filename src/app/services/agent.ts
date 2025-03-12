@@ -105,7 +105,7 @@ class SonicAgent {
     }
 
     console.log(`Executing action ${route.action} with confidence ${route.confidence}`);
-    return action.handler(message, walletAddress);
+    return action.handler(message, { walletAddress, message });
   }
 
   async processMessage(message: string, walletAddress?: string): Promise<string> {
@@ -134,8 +134,8 @@ class SonicAgent {
         console.error('Onchain action error:', error);
       }
 
-      // Use OpenAI to generate the response
-      const openAiResponse = await generateResponse(message);
+      // Use OpenAI to generate the response, passing the wallet address for context
+      const openAiResponse = await generateResponse(message, walletAddress);
 
       // Create the response content
       let responseText = openAiResponse;

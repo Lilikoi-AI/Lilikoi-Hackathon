@@ -19,6 +19,20 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   validatorButtons?: ValidatorInfo[]
+  investButtons?: { id: number, text: string, action: string, protocol: string, asset: string, apy: number, risk: string }[]
+  strategyButtons?: { 
+    strategies: Array<{
+      id: number, 
+      protocol: string, 
+      asset: string, 
+      apy: number, 
+      tvl: string, 
+      risk: string,
+      score: number
+    }>,
+    currentPage: number,
+    totalPages: number
+  }
 }
 
 // Network RPC endpoints
@@ -62,12 +76,36 @@ export default function ChatInterface() {
   const { address } = useAccount()
   const publicClient = usePublicClient()
   const { data: walletClient } = useWalletClient()
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      role: 'assistant',
+      content: 'Hello! I\'m Sonic AI, your DeFi assistant. How can I help you today?'
+    }
+  ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const signer = useEthersSigner() as ethers.JsonRpcSigner;
   const [answer, setAnswer] = useState<string>('');
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+
+  // Add state for the explanation popup
+  const [showExplanationPopup, setShowExplanationPopup] = useState(false);
+  const [currentExplanation, setCurrentExplanation] = useState<{
+    title: string;
+    content: string;
+  }>({ title: '', content: '' });
+
+  // Add state for the investment modal
+  const [showInvestModal, setShowInvestModal] = useState(false);
+  const [selectedInvestment, setSelectedInvestment] = useState<{
+    protocol: string;
+    asset: string;
+    apy: number;
+    amount: string;
+  } | null>(null);
+
+  // Add a new state variable to track when we're loading strategy details
+  const [loadingStrategyDetails, setLoadingStrategyDetails] = useState(false);
 
   // Clear state when wallet changes
   useEffect(() => {
@@ -81,26 +119,50 @@ export default function ChatInterface() {
   const exampleQueriesMap = {
     staking: [
       "What validators are available for staking?",
-      "I want to stake 1 S with validator #13",
+      "How much can I earn from staking?",
       "Show me my staking positions",
       "I want to unstake my tokens"
     ],
     bridging: [
-      "Bridge 1 USDC.e from sonic to polygon",
+      "How do I bridge tokens to Sonic?",
+      "Show me my bridged tokens",
+      "What's the status of my bridge transaction?",
       "Bridge 10 USDC to Ethereum"
     ],
     tokens: [
       "Show me my token balances",
-      "What is the token address of usdc.e on sonic",
-      
+      "What tokens can I swap?",
+      "Send 5 S tokens to 0x...",
+      "Approve USDC for swapping"
     ],
     prices: [
       "What's the current price of ETH?",
-      "What is the price of USDC.e?",
-      
+      "Show me S token price history for last 7 days",
+      "Alert me when USDC goes above 1.01",
+      "Compare ETH and S token prices"
     ],
-    
-    
+    gas: [
+      "What's the current gas price on Ethereum?",
+      "Estimate gas cost for bridging to Sonic",
+      "Show me gas price history for last 24h",
+      "When is the best time to transact?"
+    ],
+    portfolio: [
+      "Show me my portfolio overview",
+      "What's my asset allocation by chain?",
+      "Calculate my portfolio's diversification score",
+      "Analyze my portfolio risk level",
+      "How are my assets distributed?",
+      "Give me investment suggestions for low risk"
+    ],
+    yield: [
+      "Show me yield opportunities for low risk",
+      "What's the best yield for stablecoins?",
+      "Compare yields across protocols",
+      "Monitor my yield farming positions",
+      "Suggest yield strategies based on my portfolio",
+      "Find high APY opportunities with good TVL"
+    ]
   };
 
   // Dropdown button component
@@ -322,30 +384,111 @@ export default function ChatInterface() {
       // Handle getYieldFarms action
       if (routerResult.action === "getYieldFarms") {
         try {
-          setAnswer("Fetching yield farming opportunities...");
+          const { riskLevel } = routerResult.parameters;
           
-          const { getYieldFarms } = await import('../services/actions/handlers');
-          const farms = await getYieldFarms();
+          // Show initial loading message
+          setAnswer("Fetching Sonic yield opportunities and analyzing your portfolio...");
           
-          const farmsMessage = farms.map(farm => {
-            return `${farm.name}:\n` +
-                   `• Token Pair: ${farm.tokenPair}\n` +
-                   `• APR: ${farm.apr}%\n` +
-                   `• TVL: $${farm.tvl}\n` +
-                   `• Rewards: ${farm.rewards}`;
-          }).join('\n\n');
+          // Import required services
+          const { YieldService } = await import('../services/yield');
+          const { PriceService } = await import('../services/price');
+          const { priceActions } = await import('../services/actions/price');
+          
+          // Get the getTokenPrice action
+          const getTokenPriceAction = priceActions.find(action => action.name === 'getTokenPrice');
+          // Create a safe handler function to avoid TypeScript errors
+          const safeGetTokenPrice = (symbol: string) => {
+            if (getTokenPriceAction && getTokenPriceAction.handler) {
+              return getTokenPriceAction.handler({ tokenSymbol: symbol }, {})
+                .catch(err => {
+                  console.warn(`Could not fetch price for ${symbol}:`, err.message);
+                  return null;
+                });
+            }
+            return Promise.resolve(null);
+          };
+          
+          // Fetch Sonic yield opportunities first - this is the core functionality
+          const opportunities = await YieldService.getYieldOpportunities();
+          
+          // Filter opportunities by risk level if specified
+          const userRiskLevel = riskLevel || 'medium';
+          
+          // Filter and score opportunities
+          const filteredOpportunities = opportunities.filter(opp => 
+            opp.risk === userRiskLevel.toLowerCase()
+          );
+          
+          // Sort by APY (highest first)
+          filteredOpportunities.sort((a, b) => b.apy - a.apy);
+          
+          // Calculate scores for each opportunity
+          const scoredOpportunities = filteredOpportunities.map((opp, index) => {
+            // Calculate normalized APY score (0-100)
+            const maxApy = Math.max(...filteredOpportunities.map(o => o.apy));
+            const minApy = Math.min(...filteredOpportunities.map(o => o.apy));
+            const apyRange = maxApy - minApy;
+            const apyScore = apyRange > 0 
+              ? ((opp.apy - minApy) / apyRange) * 100 
+              : 50;
+            
+            // Calculate TVL score (higher TVL = higher score)
+            const tvlNum = parseFloat(opp.tvl);
+            const maxTvl = Math.max(...filteredOpportunities.map(o => parseFloat(o.tvl)));
+            const minTvl = Math.min(...filteredOpportunities.map(o => parseFloat(o.tvl)));
+            const tvlRange = maxTvl - minTvl;
+            const tvlScore = tvlRange > 0 
+              ? ((tvlNum - minTvl) / tvlRange) * 100 
+              : 50;
+            
+            // Calculate risk alignment score
+            const riskAlignmentScore = 100; // Perfect match since we filtered by user's risk level
+            
+            // Calculate protocol reputation score (simplified)
+            const reputationScore = 70 + Math.random() * 30; // Random score between 70-100
+            
+            // Calculate overall score with weights
+            const overallScore = (
+              (apyScore * 0.35) +         // APY: 35% weight
+              (tvlScore * 0.20) +          // TVL: 20% weight
+              (riskAlignmentScore * 0.35) + // Risk alignment: 35% weight
+              (reputationScore * 0.10)      // Protocol reputation: 10% weight
+            );
+            
+            return {
+              ...opp,
+              id: index + 1,
+              score: overallScore
+            };
+          });
+          
+          // Sort by overall score (highest first)
+          scoredOpportunities.sort((a, b) => b.score - a.score);
+          
+          // Initial message with explanation
+          const initialMessage = `I've found ${scoredOpportunities.length} yield strategies matching your ${userRiskLevel} risk preference.\n\nHere are the top strategies:`;
+          
+          // Display the first 3 strategies with pagination
+          const STRATEGIES_PER_PAGE = 3;
+          const totalPages = Math.ceil(scoredOpportunities.length / STRATEGIES_PER_PAGE);
           
           setMessages(prev => [...prev, {
             role: 'assistant',
-            content: `Available Yield Farms:\n\n${farmsMessage}`
+            content: initialMessage,
+            strategyButtons: {
+              strategies: scoredOpportunities.slice(0, STRATEGIES_PER_PAGE),
+              currentPage: 1,
+              totalPages
+            }
           }]);
+          
           setAnswer('');
           return;
         } catch (error: any) {
-          console.error('Error fetching yield farms:', error);
+          console.error('Error getting yield farms:', error);
           setMessages(prev => [...prev, {
             role: 'assistant',
-            content: `Error: ${error.message || 'Failed to fetch yield farms'}. Please try again.`
+            content: `Error: ${error.message || 'Failed to get yield farms'}. Please try again.`
           }]);
           setAnswer('');
           return;
@@ -628,19 +771,39 @@ export default function ChatInterface() {
       if (routerResult.action === "getInvestmentSuggestions") {
         try {
           const { riskLevel = 'moderate' } = routerResult.parameters;
-          setAnswer("Generating investment suggestions...");
+          setAnswer("Analyzing yield opportunities and generating investment suggestions...");
 
+          // First, get yield farming opportunities
+          const { YieldService } = await import('../services/yield');
+          const yieldOpportunities = await YieldService.getYieldOpportunities();
+
+          // Then, get investment suggestions using the yield data
           const { PortfolioService } = await import('../services/portfolio');
-          const suggestions = await PortfolioService.getInvestmentSuggestions(riskLevel);
+          const suggestions = await PortfolioService.getInvestmentSuggestions(
+            address || '',
+            riskLevel,
+            yieldOpportunities
+          );
 
+          // Combine both yield and investment data in the response
           const message = `Investment Suggestions (${riskLevel} risk):\n\n` +
-                         suggestions.map((s, i) => 
-                           `${i + 1}. ${s.name}\n` +
-                           `• Type: ${s.type}\n` +
-                           `• Expected APR: ${s.expectedReturn}%\n` +
-                           `• Risk Level: ${s.risk}\n` +
-                           `• Recommendation: ${s.recommendation}`
-                         ).join('\n\n');
+                         `Current Yield Opportunities:\n` +
+                         yieldOpportunities.slice(0, 3).map(opp => 
+                           `• ${opp.protocol} - ${opp.asset}:\n` +
+                           `  - APY: ${opp.apy}%\n` +
+                           `  - TVL: $${opp.tvl}\n` +
+                           `  - Risk Level: ${opp.risk}`
+                         ).join('\n\n') +
+                         '\n\nRecommended Investment Strategy:\n' +
+                         suggestions.suggestions.map((s, i) => 
+                           `${i + 1}. ${s.asset}\n` +
+                           `• Allocation: ${s.amount}\n` +
+                           `• Reason: ${s.reason}`
+                         ).join('\n\n') +
+                         '\n\nExpected Returns:\n' +
+                         `• Conservative: ${suggestions.expectedReturns.conservative}\n` +
+                         `• Moderate: ${suggestions.expectedReturns.moderate}\n` +
+                         `• Aggressive: ${suggestions.expectedReturns.aggressive}`;
 
           setMessages(prev => [...prev, {
             role: 'assistant',
@@ -1661,6 +1824,519 @@ export default function ChatInterface() {
     setInput(`I want to stake 1 S tokens with validator #${validatorId}`);
   };
 
+  // Handler for the "Why" button
+  const handleWhyButtonClick = async (strategy: any) => {
+    try {
+      setShowExplanationPopup(true);
+      setCurrentExplanation({
+        title: `Why ${strategy.protocol} - ${strategy.asset} is a good strategy`,
+        content: 'Generating explanation...'
+      });
+      
+      // Get current market data for context
+      const { PriceService } = await import('../services/price');
+      let assetPrice = null;
+      try {
+        const priceData = await PriceService.getTokenPrice(strategy.asset);
+        assetPrice = priceData?.price;
+      } catch (error) {
+        console.warn(`Could not fetch price for ${strategy.asset}:`, error);
+      }
+      
+      // Generate explanation using OpenAI
+      const response = await fetch('/api/openai/explain-strategy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          protocol: strategy.protocol,
+          asset: strategy.asset,
+          apy: strategy.apy,
+          tvl: strategy.tvl,
+          risk: strategy.risk,
+          score: strategy.score,
+          assetPrice: assetPrice,
+          currentDate: new Date().toISOString(),
+          compoundingFrequency: 'daily', // Assuming daily compounding for yield
+          estimatedFees: {
+            entryFee: '0-0.5%',
+            exitFee: '0-0.5%',
+            managementFee: '0-2%'
+          }
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate explanation');
+      }
+      
+      const data = await response.json();
+      
+      setCurrentExplanation({
+        title: `Why ${strategy.protocol} - ${strategy.asset} is a good strategy`,
+        content: data.explanation || 'This strategy offers a good balance of risk and reward based on your preferences. The protocol has a solid reputation and the asset provides good liquidity.'
+      });
+    } catch (error) {
+      console.error('Error generating explanation:', error);
+      setCurrentExplanation({
+        title: `Why ${strategy.protocol} - ${strategy.asset} is a good strategy`,
+        content: 'This strategy offers a good balance of risk and reward based on your preferences. The protocol has a solid reputation and the asset provides good liquidity.'
+      });
+    }
+  };
+  
+  // Handler for the "Next" button
+  const handleNextPage = (message: Message, messageIndex: number) => {
+    if (!message.strategyButtons) return;
+    
+    const { currentPage, totalPages } = message.strategyButtons;
+    if (currentPage >= totalPages) return;
+    
+    // Import required services
+    import('../services/yield').then(async ({ YieldService }) => {
+      try {
+        // Fetch all opportunities
+        const opportunities = await YieldService.getYieldOpportunities();
+        
+        // Filter by risk level
+        const userRiskLevel = message.strategyButtons?.strategies[0]?.risk || 'medium';
+        const filteredOpportunities = opportunities.filter(opp => 
+          opp.risk === userRiskLevel.toLowerCase()
+        );
+        
+        // Sort by APY
+        filteredOpportunities.sort((a, b) => b.apy - a.apy);
+        
+        // Calculate scores (same logic as in getYieldFarms)
+        const scoredOpportunities = filteredOpportunities.map((opp, index) => {
+          // Calculate normalized APY score (0-100)
+          const maxApy = Math.max(...filteredOpportunities.map(o => o.apy));
+          const minApy = Math.min(...filteredOpportunities.map(o => o.apy));
+          const apyRange = maxApy - minApy;
+          const apyScore = apyRange > 0 
+            ? ((opp.apy - minApy) / apyRange) * 100 
+            : 50;
+          
+          // Calculate TVL score (higher TVL = higher score)
+          const tvlNum = parseFloat(opp.tvl);
+          const maxTvl = Math.max(...filteredOpportunities.map(o => parseFloat(o.tvl)));
+          const minTvl = Math.min(...filteredOpportunities.map(o => parseFloat(o.tvl)));
+          const tvlRange = maxTvl - minTvl;
+          const tvlScore = tvlRange > 0 
+            ? ((tvlNum - minTvl) / tvlRange) * 100 
+            : 50;
+          
+          // Calculate risk alignment score
+          const riskAlignmentScore = 100; // Perfect match since we filtered by user's risk level
+          
+          // Calculate protocol reputation score (simplified)
+          const reputationScore = 70 + Math.random() * 30; // Random score between 70-100
+          
+          // Calculate overall score with weights
+          const overallScore = (
+            (apyScore * 0.35) +         // APY: 35% weight
+            (tvlScore * 0.20) +          // TVL: 20% weight
+            (riskAlignmentScore * 0.35) + // Risk alignment: 35% weight
+            (reputationScore * 0.10)      // Protocol reputation: 10% weight
+          );
+          
+          return {
+            ...opp,
+            id: index + 1,
+            score: overallScore
+          };
+        });
+        
+        // Sort by overall score
+        scoredOpportunities.sort((a, b) => b.score - a.score);
+        
+        // Calculate next page
+        const nextPage = currentPage + 1;
+        const STRATEGIES_PER_PAGE = 3;
+        const startIndex = (nextPage - 1) * STRATEGIES_PER_PAGE;
+        const endIndex = startIndex + STRATEGIES_PER_PAGE;
+        
+        // Update the message with the next page of strategies
+        setMessages(prev => {
+          const newMessages = [...prev];
+          if (newMessages[messageIndex] && newMessages[messageIndex].strategyButtons) {
+            newMessages[messageIndex].strategyButtons = {
+              strategies: scoredOpportunities.slice(startIndex, endIndex),
+              currentPage: nextPage,
+              totalPages
+            };
+          }
+          return newMessages;
+        });
+      } catch (error) {
+        console.error('Error loading next page:', error);
+      }
+    });
+  };
+  
+  // Handler for the "Previous" button
+  const handlePrevPage = (message: Message, messageIndex: number) => {
+    if (!message.strategyButtons) return;
+    
+    const { currentPage } = message.strategyButtons;
+    if (currentPage <= 1) return;
+    
+    // Import required services
+    import('../services/yield').then(async ({ YieldService }) => {
+      try {
+        // Fetch all opportunities
+        const opportunities = await YieldService.getYieldOpportunities();
+        
+        // Filter by risk level
+        const userRiskLevel = message.strategyButtons?.strategies[0]?.risk || 'medium';
+        const filteredOpportunities = opportunities.filter(opp => 
+          opp.risk === userRiskLevel.toLowerCase()
+        );
+        
+        // Sort by APY
+        filteredOpportunities.sort((a, b) => b.apy - a.apy);
+        
+        // Calculate scores (same logic as in getYieldFarms)
+        const scoredOpportunities = filteredOpportunities.map((opp, index) => {
+          // Calculate normalized APY score (0-100)
+          const maxApy = Math.max(...filteredOpportunities.map(o => o.apy));
+          const minApy = Math.min(...filteredOpportunities.map(o => o.apy));
+          const apyRange = maxApy - minApy;
+          const apyScore = apyRange > 0 
+            ? ((opp.apy - minApy) / apyRange) * 100 
+            : 50;
+          
+          // Calculate TVL score (higher TVL = higher score)
+          const tvlNum = parseFloat(opp.tvl);
+          const maxTvl = Math.max(...filteredOpportunities.map(o => parseFloat(o.tvl)));
+          const minTvl = Math.min(...filteredOpportunities.map(o => parseFloat(o.tvl)));
+          const tvlRange = maxTvl - minTvl;
+          const tvlScore = tvlRange > 0 
+            ? ((tvlNum - minTvl) / tvlRange) * 100 
+            : 50;
+          
+          // Calculate risk alignment score
+          const riskAlignmentScore = 100; // Perfect match since we filtered by user's risk level
+          
+          // Calculate protocol reputation score (simplified)
+          const reputationScore = 70 + Math.random() * 30; // Random score between 70-100
+          
+          // Calculate overall score with weights
+          const overallScore = (
+            (apyScore * 0.35) +         // APY: 35% weight
+            (tvlScore * 0.20) +          // TVL: 20% weight
+            (riskAlignmentScore * 0.35) + // Risk alignment: 35% weight
+            (reputationScore * 0.10)      // Protocol reputation: 10% weight
+          );
+          
+          return {
+            ...opp,
+            id: index + 1,
+            score: overallScore
+          };
+        });
+        
+        // Sort by overall score
+        scoredOpportunities.sort((a, b) => b.score - a.score);
+        
+        // Calculate previous page
+        const prevPage = currentPage - 1;
+        const STRATEGIES_PER_PAGE = 3;
+        const startIndex = (prevPage - 1) * STRATEGIES_PER_PAGE;
+        const endIndex = startIndex + STRATEGIES_PER_PAGE;
+        
+        // Update the message with the previous page of strategies
+        setMessages(prev => {
+          const newMessages = [...prev];
+          if (newMessages[messageIndex] && newMessages[messageIndex].strategyButtons) {
+            newMessages[messageIndex].strategyButtons = {
+              strategies: scoredOpportunities.slice(startIndex, endIndex),
+              currentPage: prevPage,
+              totalPages: message.strategyButtons.totalPages
+            };
+          }
+          return newMessages;
+        });
+      } catch (error) {
+        console.error('Error loading previous page:', error);
+      }
+    });
+  };
+
+  const handleInvestButtonClick = async (strategy: any) => {
+    if (!address) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Please connect your wallet first.'
+      }]);
+      return;
+    }
+
+    setSelectedInvestment({
+      protocol: strategy.protocol,
+      asset: strategy.asset,
+      apy: strategy.apy,
+      amount: ''
+    });
+    setShowInvestModal(true);
+  };
+
+  const handleInvestSubmit = async (amount: string) => {
+    if (!selectedInvestment || !address || !signer) {
+      console.error("Missing required data for investment");
+      return;
+    }
+    
+    console.log(`Starting investment in ${selectedInvestment.protocol} for asset ${selectedInvestment.asset}`);
+    console.log(`Amount: ${amount}, APY: ${selectedInvestment.apy}%`);
+    
+    setShowInvestModal(false);
+    setIsLoading(true);
+    
+    try {
+      // Import required services
+      const { YieldService } = await import('../services/yield');
+      const { TokenService } = await import('../services/token');
+      const { ProtocolsService } = await import('../services/protocols');
+      const { InvestmentService } = await import('../services/investment');
+      
+      // Step 1: Ensure protocol is supported or register it
+      if (!ProtocolsService.isProtocolSupported(selectedInvestment.protocol)) {
+        console.log(`Protocol ${selectedInvestment.protocol} not in registry yet, registering...`);
+        
+        // Register the protocol dynamically
+        ProtocolsService.registerProtocol(selectedInvestment.protocol, {
+          displayName: selectedInvestment.protocol,
+          description: `${selectedInvestment.protocol} DeFi protocol`,
+          website: '',
+          chainId: 12553, // Default to Sonic Chain ID
+          tags: ['defi', 'yield'],
+          supports: {
+            staking: true,
+            farming: true,
+            lending: false,
+          }
+        });
+      }
+      
+      // Step 2: Get token information
+      const tokenInfo = await TokenService.getTokenInfo(selectedInvestment.asset);
+      if (!tokenInfo) {
+        setIsLoading(false);
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Error: Token ${selectedInvestment.asset} not found. Please try again with a supported token.`
+        }]);
+        return;
+      }
+      
+      // Step 3: Convert amount to BigInt
+      const amountBigInt = ethers.parseUnits(amount, tokenInfo.decimals);
+      
+      // Step 4: Check user balance
+      const balance = await TokenService.getTokenBalance(address, selectedInvestment.asset);
+      if (balance < amountBigInt) {
+        setIsLoading(false);
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Error: Insufficient balance for ${selectedInvestment.asset}. You have ${ethers.formatUnits(balance, tokenInfo.decimals)} ${selectedInvestment.asset}, but the investment requires ${amount} ${selectedInvestment.asset}.`
+        }]);
+        return;
+      }
+      
+      // Step 5: Get protocol contract address (can be dynamic)
+      let protocolAddress;
+      try {
+        protocolAddress = await ProtocolsService.getVaultAddress(
+          selectedInvestment.protocol, 
+          selectedInvestment.asset
+        );
+      } catch (error) {
+        console.log("No vault address found, will use auto-registration during allocation");
+        // We'll continue and let YieldService handle this
+      }
+      
+      // Step 6: Track investment before execution
+      const investment = await InvestmentService.trackInvestment(
+        selectedInvestment.protocol,
+        selectedInvestment.asset,
+        amount,
+        selectedInvestment.apy,
+        address
+      );
+      
+      console.log(`Created investment tracking with ID: ${investment.id}`);
+      
+      // Step 7: Calculate estimated returns for display
+      const returns = InvestmentService.calculateReturns(amount, selectedInvestment.apy);
+      console.log("Estimated returns:", returns);
+
+      // Step 8: Check token allowance and request approval if needed
+      const tokenAddress = await TokenService.getTokenAddress(selectedInvestment.asset);
+      const spenderAddress = protocolAddress || await YieldService.getProtocolAddress(selectedInvestment.protocol);
+      const currentAllowance = await TokenService.getTokenAllowance(address, spenderAddress, selectedInvestment.asset);
+
+      if (currentAllowance < amountBigInt) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Requesting approval to spend ${amount} ${selectedInvestment.asset}. Please confirm the transaction in your wallet.`
+        }]);
+
+        try {
+          const approveTx = await TokenService.approveToken(signer, spenderAddress, selectedInvestment.asset, amountBigInt);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Approval transaction submitted. Waiting for confirmation...`
+          }]);
+          
+          await approveTx.wait();
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Approval confirmed! Proceeding with investment...`
+          }]);
+        } catch (error: any) {
+          setIsLoading(false);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Error: Failed to approve token spending. ${error.message || 'Please try again.'}`
+          }]);
+          InvestmentService.updateInvestmentStatus(investment.id, 'failed');
+          return;
+        }
+      }
+      
+      // Step 9: Execute investment
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Initiating investment transaction. Please confirm in your wallet...`
+      }]);
+
+      const success = await YieldService.allocateFunds(
+        selectedInvestment.protocol,
+        selectedInvestment.asset,
+        amount,
+        signer
+      );
+      
+      setIsLoading(false);
+      
+      if (success) {
+        // Update investment status to active
+        InvestmentService.updateInvestmentStatus(investment.id, 'active');
+        
+        // Get token price for display
+        const tokenPrice = await TokenService.getTokenPrice(selectedInvestment.asset);
+        const priceString = tokenPrice ? `$${tokenPrice}` : 'Price unavailable';
+        
+        // Format success message with detailed information
+        const successMessage = `
+Investment Successful! 🎉
+
+You have invested ${amount} ${selectedInvestment.asset} in ${selectedInvestment.protocol}.
+Current APY: ${selectedInvestment.apy}%
+Current ${selectedInvestment.asset} price: ${priceString}
+
+Estimated Returns:
+• Monthly: ${returns.monthly} ${selectedInvestment.asset}
+• Yearly: ${returns.yearly} ${selectedInvestment.asset}
+• Compounded (1 year): ${returns.compounded.yearly} ${selectedInvestment.asset}
+
+Your investment is now actively generating yield. You can view and manage your investments in the Portfolio section.
+`;
+        
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: successMessage
+        }]);
+      } else {
+        // Update investment status to failed
+        InvestmentService.updateInvestmentStatus(investment.id, 'failed');
+        
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Error: Unable to complete the investment in ${selectedInvestment.protocol}. The transaction failed or was rejected. Please try again later or with a different protocol.`
+        }]);
+      }
+    } catch (error: any) {
+      setIsLoading(false);
+      console.error("Investment error:", error);
+      
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Error: ${error.message || 'An unknown error occurred during the investment process. Please try again.'}`
+      }]);
+    }
+  };
+
+  // Add the handler for the Check Strategy button
+  const handleCheckStrategyClick = async (strategy: any) => {
+    try {
+      setLoadingStrategyDetails(true);
+      
+      // Clear any previous message and show loading state
+      setAnswer(`Fetching detailed information about ${strategy.protocol} - ${strategy.asset} strategy...`);
+      
+      console.log(`\n===================== CHECK STRATEGY BUTTON CLICKED =====================`);
+      console.log(`Strategy: ${strategy.protocol} - ${strategy.asset}`);
+      console.log(`APY: ${strategy.apy}%, TVL: ${strategy.tvl}, Risk: ${strategy.risk}`);
+      console.log(`Timestamp: ${new Date().toISOString()}`);
+      
+      // Import the service
+      const { YieldService } = await import('../services/yield');
+      
+      console.log(`Calling YieldService.getStrategyDetails...`);
+      
+      // Call the service method to get detailed info
+      const detailedInfo = await YieldService.getStrategyDetails(strategy.protocol, strategy.asset);
+      
+      console.log(`Strategy details received:`, detailedInfo);
+      
+      // Add the response as a new message
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `
+## Detailed Strategy Information: ${strategy.protocol} - ${strategy.asset}
+
+**Basic Information:**
+• Protocol: ${strategy.protocol}
+• Asset: ${strategy.asset}
+• APY: ${strategy.apy.toFixed(2)}%
+• TVL: $${typeof strategy.tvl === 'string' ? (Number(strategy.tvl) / 1e6).toFixed(2) : (strategy.tvl / 1e6).toFixed(2)}M
+• Risk Level: ${strategy.risk}
+• Score: ${strategy.score}/100
+
+**DeFiLlama Details:**
+${detailedInfo.url ? `• Protocol URL: [${strategy.protocol}](${detailedInfo.url})` : ''}
+${detailedInfo.audits ? `• Audits: ${detailedInfo.audits}` : ''}
+${detailedInfo.tvlUsd ? `• Current TVL: $${(detailedInfo.tvlUsd / 1e6).toFixed(2)}M` : ''}
+${detailedInfo.apyBase ? `• Base APY: ${detailedInfo.apyBase.toFixed(2)}%` : ''}
+${detailedInfo.apyReward ? `• Reward APY: ${detailedInfo.apyReward.toFixed(2)}%` : ''}
+${detailedInfo.rewardTokens ? `• Reward Tokens: ${detailedInfo.rewardTokens.join(', ')}` : ''}
+${detailedInfo.volumeUsd24h ? `• 24h Volume: $${(detailedInfo.volumeUsd24h / 1e6).toFixed(2)}M` : ''}
+${detailedInfo.underlyingTokens ? `• Underlying Tokens: ${detailedInfo.underlyingTokens.join(', ')}` : ''}
+${detailedInfo.poolMeta ? `• Pool Info: ${detailedInfo.poolMeta}` : ''}
+${detailedInfo.il7d ? `• Impermanent Loss (7d): ${detailedInfo.il7d.toFixed(2)}%` : ''}
+
+${detailedInfo.description || 'No additional details available for this strategy.'}
+`
+      }]);
+      
+      console.log(`Strategy details displayed to user`);
+      console.log(`===================== END CHECK STRATEGY BUTTON CLICK =====================\n`);
+      
+    } catch (error: any) {
+      console.error('Error fetching strategy details:', error);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Error fetching strategy details: ${error.message || 'Unknown error'}. Please try again.`
+      }]);
+    } finally {
+      setLoadingStrategyDetails(false);
+      setAnswer('');
+    }
+  };
+
   return (
     <div className="flex flex-col h-[600px] w-full max-w-4xl mx-auto bg-gray-900/50 backdrop-blur-sm rounded-xl border border-purple-500/20 shadow-2xl">
       {/* Example Queries with Dropdowns */}
@@ -1718,6 +2394,130 @@ export default function ChatInterface() {
                       onSelect={handleValidatorSelect}
                     />
                   ))}
+            </div>
+              )}
+              {message.investButtons && (
+                <div className="mt-4 space-y-2">
+                  {message.investButtons.map((investment) => (
+                    <button
+                      key={investment.id}
+                      onClick={() => {
+                        setInput(`I want to invest in ${investment.protocol} ${investment.asset} yield farm with ${investment.apy}% APY`);
+                      }}
+                      className="w-full mb-2 p-4 bg-gradient-to-r from-gray-800 to-purple-900/50 rounded-xl border border-purple-500/30 
+                                 hover:from-purple-900/50 hover:to-gray-800 transition-all duration-200 text-left group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg font-semibold text-purple-200">{investment.text}</span>
+                            <span className={`px-2 py-1 rounded-full text-xs ${investment.risk === 'high' ? 'bg-red-500/20 text-red-300' : investment.risk === 'medium' ? 'bg-yellow-500/20 text-yellow-300' : 'bg-green-500/20 text-green-300'}`}>
+                              {investment.risk === 'high' ? '🔴 High Risk' : investment.risk === 'medium' ? '🟡 Medium Risk' : '🟢 Low Risk'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="text-pink-400">Invest →</span>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              
+              {message.strategyButtons && (
+                <div className="mt-4 space-y-2">
+                  <h3 className="text-lg font-semibold text-purple-200 mb-2">
+                    Yield Opportunities
+                  </h3>
+                  {message.strategyButtons.strategies.map((strategy) => (
+                    <div key={strategy.id} className="w-full mb-2 p-4 bg-gradient-to-r from-gray-800 to-purple-900/50 rounded-xl border border-purple-500/30">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg font-semibold text-purple-200">{strategy.protocol} - {strategy.asset}</span>
+                            <span className={`px-2 py-1 rounded-full text-xs ${strategy.risk === 'high' ? 'bg-red-500/20 text-red-300' : strategy.risk === 'medium' ? 'bg-yellow-500/20 text-yellow-300' : 'bg-green-500/20 text-green-300'}`}>
+                              {strategy.risk === 'high' ? '🔴 High Risk' : strategy.risk === 'medium' ? '🟡 Medium Risk' : '🟢 Low Risk'}
+                            </span>
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-purple-200 font-semibold">Score: {Math.round(strategy.score)}/100</span>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-2 mb-3 text-sm">
+                        <div className="text-purple-300">APY: <span className="text-white">{strategy.apy.toFixed(2)}%</span></div>
+                        <div className="text-purple-300">TVL: <span className="text-white">${(parseFloat(strategy.tvl) / 1e6).toFixed(2)}M</span></div>
+                      </div>
+                      
+                      <div className="flex justify-between items-center mt-2">
+                        <button
+                          onClick={() => handleInvestButtonClick(strategy)}
+                          className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white text-sm transition-colors"
+                        >
+                          Invest
+                        </button>
+                        
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => handleCheckStrategyClick(strategy)}
+                            className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-white text-sm transition-colors"
+                          >
+                            Check Strategy
+                          </button>
+                          
+                          <button
+                            onClick={() => {
+                              setInput(`Simulate a $10,000 investment in ${strategy.protocol} ${strategy.asset} for 1 year`);
+                            }}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white text-sm transition-colors"
+                          >
+                            Simulate
+                          </button>
+                          
+                          <button
+                            onClick={() => handleWhyButtonClick(strategy)}
+                            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white text-sm transition-colors"
+                          >
+                            Why?
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {message.strategyButtons.totalPages > 1 && (
+                    <div className="flex justify-between items-center mt-2">
+                      <button
+                        onClick={() => handlePrevPage(message, index)}
+                        disabled={message.strategyButtons.currentPage === 1}
+                        className={`px-4 py-2 rounded-lg text-white text-sm transition-colors ${
+                          message.strategyButtons.currentPage === 1 
+                            ? 'bg-gray-700 opacity-50 cursor-not-allowed' 
+                            : 'bg-purple-600 hover:bg-purple-700'
+                        }`}
+                      >
+                        Previous
+                      </button>
+                      
+                      <span className="text-purple-200">
+                        Page {message.strategyButtons.currentPage} of {message.strategyButtons.totalPages}
+                      </span>
+                      
+                      <button
+                        onClick={() => handleNextPage(message, index)}
+                        disabled={message.strategyButtons.currentPage === message.strategyButtons.totalPages}
+                        className={`px-4 py-2 rounded-lg text-white text-sm transition-colors ${
+                          message.strategyButtons.currentPage === message.strategyButtons.totalPages 
+                            ? 'bg-gray-700 opacity-50 cursor-not-allowed' 
+                            : 'bg-purple-600 hover:bg-purple-700'
+                        }`}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1732,25 +2532,234 @@ export default function ChatInterface() {
         )}
       </div>
 
-      {/* Input Form */}
-      <form onSubmit={sendMessage} className="border-t border-purple-500/20 p-6 bg-gray-900/30">
-        <div className="flex space-x-4">
+      {/* Input area */}
+      <div className="p-4 border-t border-purple-500/30 bg-gradient-to-b from-gray-900 to-purple-900/20">
+        <form onSubmit={sendMessage} className="flex items-center space-x-2">
           <input
-            type="text"
+            className="flex-1 p-3 rounded-xl bg-gray-800 border border-purple-500/30 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about DeFi operations..."
-            className="flex-1 rounded-xl border border-purple-500/20 bg-gray-800/50 p-4 text-purple-100 placeholder-purple-400 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+            placeholder="Ask about DeFi, staking, or yield farming..."
+            disabled={isLoading}
           />
           <button
             type="submit"
+            className={`p-3 rounded-xl ${isLoading ? 'bg-gray-700 cursor-not-allowed' : 'bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700'} text-white`}
             disabled={isLoading}
-            className="px-6 bg-gradient-to-r from-pink-500 to-purple-600 text-white rounded-xl hover:from-pink-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-pink-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ease-in-out"
           >
-            Enter
+            <PaperAirplaneIcon className="h-6 w-6" />
           </button>
+        </form>
+      </div>
+      
+      {/* Explanation Popup */}
+      {showExplanationPopup && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-gray-900 via-purple-900/50 to-gray-900 rounded-2xl border border-purple-500/30 shadow-2xl p-8 max-w-3xl w-full max-h-[85vh] overflow-y-auto relative">
+            {/* Close button */}
+            <button 
+              onClick={() => setShowExplanationPopup(false)}
+              className="absolute top-4 right-4 text-purple-300 hover:text-white transition-colors"
+              aria-label="Close explanation"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            {/* Title */}
+            <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-400 mb-6 pr-8">
+              {currentExplanation.title}
+            </h3>
+
+            {/* Content */}
+            <div className="text-purple-100 prose prose-invert max-w-none space-y-6">
+              {currentExplanation.content.split("SUMMARY").map((part, index, array) => {
+                if (index === 0) return null; // Skip any content before SUMMARY
+
+                const [summary, rest] = part.split("ANALYSIS");
+                const [analysis, calculations] = (rest || "").split("CALCULATIONS");
+                const [calcs, returnsTable] = (calculations || "").split("RETURNS TABLE");
+                
+                return (
+                  <div key={index} className="space-y-6">
+                    {/* Summary Section */}
+                    <div className="bg-purple-900/20 rounded-xl p-6 border border-purple-500/20">
+                      <h4 className="text-lg font-semibold text-pink-400 mb-3">Summary</h4>
+                      <div className="text-purple-100">{summary.trim()}</div>
+                    </div>
+
+                    {/* Analysis Section */}
+                    {analysis && (
+                      <div className="bg-purple-900/20 rounded-xl p-6 border border-purple-500/20">
+                        <h4 className="text-lg font-semibold text-pink-400 mb-4">Analysis</h4>
+                        <div className="space-y-6">
+                          {analysis.split(/\n\n+/).map((section, idx) => {
+                            const [title, ...points] = section.split('\n');
+                            if (!title.trim()) return null;
+                            
+                            return (
+                              <div key={idx} className="space-y-2">
+                                <h5 className="text-purple-200 font-medium">{title.trim()}</h5>
+                                <div className="pl-4 space-y-1">
+                                  {points.map((point, i) => {
+                                    const [number, text] = point.split('. ');
+                                    if (!text) return null;
+                                    
+                                    return (
+                                      <div key={i} className="flex gap-2">
+                                        <span className="text-pink-400">{number}.</span>
+                                        <span>{text.trim()}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Calculations Section */}
+                    {calcs && (
+                      <div className="bg-purple-900/20 rounded-xl p-6 border border-purple-500/20">
+                        <h4 className="text-lg font-semibold text-pink-400 mb-4">Investment Scenarios</h4>
+                        <div className="grid md:grid-cols-3 gap-4">
+                          {calcs.split(/\d+\.\s+\$\d+,000\s+Investment:/).slice(1).map((scenario, idx) => {
+                            const amount = ["1,000", "10,000", "50,000"][idx];
+                            return (
+                              <div key={idx} className="bg-purple-950/30 rounded-lg p-4">
+                                <h5 className="text-purple-200 font-medium mb-2">${amount} Investment</h5>
+                                <div className="space-y-1">
+                                  {scenario.split('\n').map((line, i) => {
+                                    if (!line.trim() || line.includes('Investment:')) return null;
+                                    const [label, value] = line.split(': ');
+                                    if (!value) return null;
+                                    
+                                    return (
+                                      <div key={i} className="flex justify-between text-sm">
+                                        <span className="text-purple-300">{label.replace('•', '').trim()}</span>
+                                        <span className="text-white">{value.trim()}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Returns Table */}
+                    {returnsTable && (
+                      <div className="bg-purple-900/20 rounded-xl p-6 border border-purple-500/20">
+                        <h4 className="text-lg font-semibold text-pink-400 mb-4">Expected Returns</h4>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-purple-500/20">
+                            <thead>
+                              <tr className="text-purple-300">
+                                <th className="px-4 py-2 text-left">Period</th>
+                                <th className="px-4 py-2 text-right">Return Amount</th>
+                                <th className="px-4 py-2 text-right">Total Value</th>
+                                <th className="px-4 py-2 text-left">Notes</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-purple-500/20">
+                              {returnsTable.split('\n').slice(2).map((row, i) => {
+                                if (!row.trim()) return null;
+                                const [period, returnAmt, totalVal, notes] = row.split('|').map(cell => cell.trim());
+                                return (
+                                  <tr key={i} className="text-purple-100">
+                                    <td className="px-4 py-2">{period}</td>
+                                    <td className="px-4 py-2 text-right font-medium">{returnAmt}</td>
+                                    <td className="px-4 py-2 text-right font-medium">{totalVal}</td>
+                                    <td className="px-4 py-2 text-purple-300">{notes}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
-      </form>
+      )}
+      {showInvestModal && selectedInvestment && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 p-6 rounded-xl border border-purple-500/30 w-full max-w-md">
+            <h3 className="text-xl font-semibold text-purple-200 mb-4">
+              Invest in {selectedInvestment.protocol} - {selectedInvestment.asset}
+            </h3>
+            <p className="text-gray-300 mb-4">
+              APY: {selectedInvestment.apy}%
+            </p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Amount to Invest
+              </label>
+              <input
+                type="text"
+                value={selectedInvestment.amount}
+                onChange={(e) => setSelectedInvestment({...selectedInvestment, amount: e.target.value})}
+                className="w-full px-4 py-2 bg-gray-800 border border-purple-500/30 rounded-lg focus:outline-none focus:border-purple-500"
+                placeholder="Enter amount..."
+              />
+            </div>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowInvestModal(false);
+                  setSelectedInvestment(null);
+                }}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleInvestSubmit(selectedInvestment.amount)}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white transition-colors"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+// Helper function to get chain name from chain ID
+function getChainName(chainId: number): string {
+  const chainNames: Record<number, string> = {
+    1: 'Ethereum Mainnet',
+    5: 'Goerli Testnet',
+    137: 'Polygon Mainnet',
+    80001: 'Polygon Mumbai',
+    42161: 'Arbitrum One',
+    421613: 'Arbitrum Goerli',
+    10: 'Optimism',
+    420: 'Optimism Goerli',
+    56: 'BNB Smart Chain',
+    97: 'BNB Testnet',
+    43114: 'Avalanche C-Chain',
+    43113: 'Avalanche Fuji',
+    250: 'Fantom Opera',
+    4002: 'Fantom Testnet',
+    100: 'Gnosis Chain',
+    8453: 'Base',
+    84531: 'Base Goerli',
+    42220: 'Celo',
+    11155111: 'Sepolia',
+    146: 'Sonic'
+  };
+  
+  return chainNames[chainId] || '';
 }

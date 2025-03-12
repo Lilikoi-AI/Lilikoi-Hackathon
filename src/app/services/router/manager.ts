@@ -6,6 +6,7 @@ import { stakingActions } from '../actions/staking';
 import { priceActions } from '../actions/price';
 import { gasActions } from '../actions/gas';
 import { portfolioActions } from '../actions/portfolio';
+import { yieldActions } from '../actions/yield';
 import { DEBRIDGE_CONFIG } from '../../config/debridge';
 import { STAKING_CONFIG } from '../../config/staking';
 import { actions as indexActions } from '../actions';
@@ -23,7 +24,8 @@ export class RouterManager {
       ...stakingActions,
       ...priceActions,
       ...gasActions,
-      ...portfolioActions
+      ...portfolioActions,
+      ...yieldActions
     ];
     this.routerPrompt = this.buildRouterPrompt();
     
@@ -157,6 +159,20 @@ For getting investment suggestions, the user might say something like:
 - "Suggest portfolio improvements"
 - "How can I diversify?"
 - "Investment recommendations"
+
+For getting Sonic yield opportunities, the user might say something like:
+- "Show me Sonic yield opportunities" -> no risk level specified
+- "Show me Sonic yield opportunities for low risk" -> low risk specified
+- "What are the current Sonic yield farms?"
+- "Display available Sonic yield opportunities"
+- "Find low risk Sonic yield farms" -> low risk specified
+- "What Sonic yield options are available?"
+- "Show me high APY Sonic farms"
+- "Show me medium risk Sonic yield farms" -> medium risk specified
+- "Find high risk Sonic yield opportunities" -> high risk specified
+- "Show me yield opportunities for low risk" -> low risk specified
+- "What are the current yield farms?"
+- "Find low risk yield farms" -> low risk specified
 
 Important notes about tokens and bridging:
 - Native tokens (like S on Sonic or ETH on Ethereum) have special handling in deBridge
@@ -335,6 +351,22 @@ Example response for investment suggestions:
   }
 }
 
+Example response for getting yield opportunities without risk level:
+{
+  "action": "getYieldFarms",
+  "confidence": 0.95,
+  "parameters": {}
+}
+
+Example response for getting yield opportunities with risk level:
+{
+  "action": "getYieldFarms",
+  "confidence": 0.95,
+  "parameters": {
+    "riskLevel": "low"  // Only include when explicitly specified in the query
+  }
+}
+
 If you're not confident about the action or if the request doesn't match any action, respond with:
 {
   "action": "none",
@@ -438,6 +470,52 @@ IMPORTANT: Your response must be a valid JSON object and nothing else. Do not in
 
   public getValidators(): typeof STAKING_CONFIG.VALIDATORS {
     return STAKING_CONFIG.VALIDATORS;
+  }
+
+  private extractParameters(action: ActionDefinition, message: string): Record<string, any> {
+    // Simple parameter extraction based on action parameters
+    const params: Record<string, any> = {};
+    
+    // Extract parameters from the message based on the action's defined parameters
+    if (action.parameters) {
+      Object.keys(action.parameters).forEach(paramName => {
+        // Look for patterns like "amount: 100" or "amount 100" or "100 USDC"
+        const paramRegex = new RegExp(`${paramName}[:\\s]+(\\S+)`, 'i');
+        const match = message.match(paramRegex);
+        
+        if (match && match[1]) {
+          params[paramName] = match[1];
+        }
+      });
+    }
+    
+    return params;
+  }
+
+  async executeAction(actionName: string, message: string, walletAddress?: string): Promise<any> {
+    const action = this.getActionByName(actionName);
+    
+    if (!action) {
+      throw new Error(`Action ${actionName} not found`);
+    }
+    
+    if (!action.handler) {
+      throw new Error(`No handler defined for action ${actionName}`);
+    }
+    
+    // Extract parameters from the message
+    const params = this.extractParameters(action, message);
+    
+    // Validate parameters
+    if (action.validate) {
+      const validation = action.validate(params);
+      if (!validation.isValid) {
+        throw new Error(`Invalid parameters: ${validation.error}`);
+      }
+    }
+    
+    // Execute the action with the original message in the context
+    return action.handler(params, { walletAddress, message });
   }
 }
 

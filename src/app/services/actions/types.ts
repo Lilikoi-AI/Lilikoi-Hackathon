@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { ethers } from 'ethers';
+
 export interface ActionResponse {
   type: string;
   data: any;
@@ -20,8 +22,10 @@ export interface ActionDefinition {
 export interface ActionContext {
   chainId?: number;
   walletAddress?: string;
+  wallet?: ethers.Wallet;
   publicClient?: any;
   walletClient?: any;
+  message?: string;
 }
 
 export interface TokenBalance {

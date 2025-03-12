@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { PriceService } from './price';
 import { fetchWalletTokens } from './actions/api';
 import { DEBRIDGE_CHAIN_IDS } from './actions/debridge-token';
+import { priceActions } from './actions/price';
 
 interface Asset {
   symbol: string;
@@ -57,10 +58,24 @@ export class PortfolioService {
       for (const [chainName, chainId] of Object.entries(DEBRIDGE_CHAIN_IDS)) {
         const tokens = await fetchWalletTokens(walletAddress, chainId);
         
-        // Get price for each token
+        // Get price for each token using getTokenPrice action
         for (const token of tokens) {
           try {
-            const { price } = await PriceService.getTokenPrice(token.symbol, currency.toLowerCase());
+            const getTokenPriceAction = priceActions.find(action => action.name === 'getTokenPrice');
+            if (!getTokenPriceAction) {
+              throw new Error('getTokenPrice action not found');
+            }
+
+            const priceResult = await getTokenPriceAction.handler({
+              tokenSymbol: token.symbol,
+              currency: currency.toLowerCase()
+            });
+
+            if (priceResult.type === 'ERROR') {
+              throw new Error(priceResult.message);
+            }
+
+            const price = priceResult.data.price;
             const value = (parseFloat(token.balance) * parseFloat(price)).toString();
             
             assets.push({
